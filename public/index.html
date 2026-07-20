@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Veeduría — Editor de Denuncias</title>
+<style>
+/* ── Reset & Base ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --verde: #0F3D2E;
+  --verde-pale: #E4EDE9;
+  --dorado: #C6A15B;
+  --gris: #5A6472;
+  --marfil: #F5F3EF;
+  --borde: #D6D3CD;
+}
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--marfil); color: #0B0B0B; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+/* ── Navbar ───────────────────────────────────────────────────── */
+.navbar {
+  background: var(--verde);
+  color: #fff;
+  padding: 0 24px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+  z-index: 100;
+}
+.navbar-brand { font-size: 15px; font-weight: 700; letter-spacing: .03em; }
+.navbar-brand span { color: var(--dorado); }
+.navbar-spacer { flex: 1; }
+.btn-nav {
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.2);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background .15s;
+}
+.btn-nav:hover { background: rgba(255,255,255,.22); }
+.btn-nav.primary { background: var(--dorado); border-color: var(--dorado); color: #0B0B0B; font-weight: 600; }
+.btn-nav.primary:hover { background: #d4af72; }
+
+/* ── Layout ───────────────────────────────────────────────────── */
+.layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────── */
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  background: #fff;
+  border-right: 1px solid var(--borde);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--borde);
+  flex-shrink: 0;
+}
+.sidebar-tab {
+  flex: 1;
+  padding: 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--gris);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+}
+.sidebar-tab.active { color: var(--verde); border-bottom-color: var(--verde); }
+.sidebar-tab:hover:not(.active) { background: var(--verde-pale); }
+.sidebar-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+.sidebar-panel.active { display: flex; }
+.sidebar-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--borde);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--gris);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.sidebar-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+
+/* ── Búsqueda panel ──────────────────────────────────────────── */
+.busqueda-form { padding: 12px 14px; overflow-y: auto; flex: 1; }
+.busqueda-field { margin-bottom: 10px; }
+.busqueda-label { font-size: 11px; font-weight: 600; color: var(--gris); display: block; margin-bottom: 3px; }
+.busqueda-input {
+  width: 100%; padding: 7px 10px;
+  border: 1px solid var(--borde); border-radius: 5px;
+  font-size: 12px;
+  transition: border-color .15s;
+}
+.busqueda-input:focus { outline: none; border-color: var(--verde); }
+.busqueda-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.btn-buscar {
+  width: 100%; padding: 9px;
+  background: var(--verde); color: #fff;
+  border: none; border-radius: 6px;
+  font-size: 13px; font-weight: 700;
+  cursor: pointer; margin-top: 4px;
+  transition: opacity .15s;
+}
+.btn-buscar:hover { opacity: .85; }
+.btn-buscar:disabled { opacity: .5; cursor: default; }
+.busqueda-results { flex: 1; overflow-y: auto; border-top: 1px solid var(--borde); }
+.res-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--verde-pale);
+  cursor: pointer;
+  transition: background .1s;
+}
+.res-item:hover { background: var(--verde-pale); }
+.res-ref { font-size: 11px; font-weight: 700; color: var(--verde); }
+.res-ent { font-size: 11px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-obj { font-size: 10px; color: var(--gris); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.res-meta { font-size: 10px; color: var(--gris); margin-top: 3px; display: flex; justify-content: space-between; }
+.res-empty { padding: 24px 16px; text-align: center; font-size: 12px; color: var(--gris); }
+.res-header { padding: 8px 14px; font-size: 11px; color: var(--gris); border-bottom: 1px solid var(--borde); display: flex; justify-content: space-between; align-items: center; }
+.res-count { font-weight: 700; color: var(--verde); }
+.exp-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--verde-pale);
+  transition: background .1s;
+}
+.exp-item:hover { background: var(--verde-pale); }
+.exp-item.active { background: var(--verde-pale); border-left: 3px solid var(--verde); }
+.exp-item-ref { font-size: 12px; font-weight: 700; color: var(--verde); }
+.exp-item-ent { font-size: 12px; color: #333; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.exp-item-meta { font-size: 11px; color: var(--gris); margin-top: 4px; display: flex; gap: 8px; align-items: center; }
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.badge-denuncia { background: #FEF3C7; color: #92400E; }
+.badge-enviada { background: #D1FAE5; color: #065F46; }
+.badge-auditado { background: #DBEAFE; color: #1E40AF; }
+.sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--borde); }
+.btn-config {
+  width: 100%;
+  padding: 9px 14px;
+  background: var(--verde-pale);
+  color: var(--verde);
+  border: 1px solid #B8CFC7;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  transition: background .15s;
+}
+.btn-config:hover { background: #D0E3DC; }
+
+/* ── Main ─────────────────────────────────────────────────────── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #E8E6E1;
+}
+
+/* ── Empty state ──────────────────────────────────────────────── */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--gris);
+  gap: 12px;
+}
+.empty-state svg { opacity: .3; }
+.empty-state p { font-size: 15px; }
+
+/* ── Toolbar ──────────────────────────────────────────────────── */
+.editor-toolbar {
+  background: #fff;
+  border-bottom: 1px solid var(--borde);
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.toolbar-sep { width: 1px; height: 22px; background: var(--borde); margin: 0 4px; }
+.btn-tool {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #444;
+  transition: background .1s;
+  min-width: 30px;
+}
+.btn-tool:hover { background: var(--verde-pale); }
+.btn-tool.active { background: var(--verde-pale); color: var(--verde); }
+.btn-tool b { font-weight: 900; }
+.toolbar-spacer { flex: 1; }
+.toolbar-actions { display: flex; gap: 8px; align-items: center; }
+.btn-action {
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid;
+  transition: all .15s;
+}
+.btn-save { background: #fff; color: var(--verde); border-color: var(--verde); }
+.btn-save:hover { background: var(--verde-pale); }
+.btn-print { background: #fff; color: #1E40AF; border-color: #1E40AF; }
+.btn-print:hover { background: #EFF6FF; }
+.btn-send { background: var(--verde); color: #fff; border-color: var(--verde); }
+.btn-send:hover { background: var(--verde); opacity: .9; }
+.save-indicator { font-size: 11px; color: var(--gris); }
+
+/* ── Document wrapper ─────────────────────────────────────────── */
+.doc-scroll { flex: 1; overflow-y: auto; padding: 32px; display: flex; justify-content: center; }
+.doc-page {
+  background: #fff;
+  width: 794px; /* A4 @ 96dpi */
+  min-height: 1123px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.15);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Letterhead ───────────────────────────────────────────────── */
+.letterhead {
+  padding: 32px 60px 20px;
+  border-bottom: 2px solid var(--verde);
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+.letterhead-logo { max-height: 72px; max-width: 120px; object-fit: contain; }
+.letterhead-info { flex: 1; }
+.letterhead-org { font-size: 17px; font-weight: 800; color: var(--verde); font-family: Georgia, serif; }
+.letterhead-sub { font-size: 12px; color: var(--gris); margin-top: 3px; }
+.letterhead-date { font-size: 12px; color: var(--gris); text-align: right; margin-left: auto; }
+.letterhead-empty {
+  padding: 12px 60px;
+  border-bottom: 2px dashed var(--borde);
+  font-size: 12px;
+  color: #aaa;
+  cursor: pointer;
+  text-align: center;
+}
+.letterhead-empty:hover { background: var(--verde-pale); }
+
+/* ── Editor content ───────────────────────────────────────────── */
+.doc-content {
+  padding: 32px 60px;
+  flex: 1;
+  outline: none;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 12pt;
+  line-height: 1.7;
+  color: #111;
+}
+.doc-content:focus { outline: none; }
+.doc-content h1 { font-size: 16pt; margin: 16px 0 8px; color: var(--verde); }
+.doc-content h2 { font-size: 14pt; margin: 14px 0 6px; color: var(--verde); }
+.doc-content h3 { font-size: 12pt; margin: 12px 0 4px; }
+.doc-content p { margin-bottom: 10px; text-align: justify; }
+.doc-content ul, .doc-content ol { margin: 8px 0 8px 28px; }
+.doc-content li { margin-bottom: 4px; }
+.doc-content blockquote { border-left: 3px solid var(--dorado); padding-left: 16px; margin: 12px 0; color: #444; font-style: italic; }
+.doc-content strong { font-weight: 700; }
+.doc-content em { font-style: italic; }
+.doc-content .hallazgo-cite { background: #FEF9EC; border: 1px solid #F6E4A8; padding: 2px 6px; border-radius: 3px; font-size: 11pt; }
+.doc-content table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 11pt; }
+.doc-content th, .doc-content td { border: 1px solid #ccc; padding: 6px 10px; }
+.doc-content th { background: var(--verde-pale); color: var(--verde); font-weight: 700; }
+
+/* ── Firma section ────────────────────────────────────────────── */
+.firma-section {
+  padding: 24px 60px 40px;
+  border-top: 1px solid var(--borde);
+  margin-top: 40px;
+}
+.firma-section img { max-height: 70px; max-width: 200px; object-fit: contain; display: block; }
+.firma-name { margin-top: 8px; font-family: Georgia, serif; font-weight: 700; font-size: 13pt; }
+.firma-cargo { font-size: 11pt; color: var(--gris); }
+
+/* ── Login ────────────────────────────────────────────────────── */
+.login-overlay {
+  position: fixed; inset: 0;
+  background: var(--verde);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+.login-card {
+  background: #fff;
+  padding: 40px;
+  border-radius: 12px;
+  width: 380px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.3);
+}
+.login-logo { font-size: 22px; font-weight: 800; color: var(--verde); margin-bottom: 8px; }
+.login-logo span { color: var(--dorado); }
+.login-sub { font-size: 14px; color: var(--gris); margin-bottom: 28px; }
+.form-label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 6px; }
+.form-input {
+  width: 100%; padding: 10px 14px;
+  border: 1px solid var(--borde);
+  border-radius: 6px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  transition: border-color .15s;
+}
+.form-input:focus { outline: none; border-color: var(--verde); }
+.btn-login {
+  width: 100%; padding: 12px;
+  background: var(--verde); color: #fff;
+  border: none; border-radius: 8px;
+  font-size: 15px; font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.btn-login:hover { opacity: .9; }
+.login-error { color: #DC2626; font-size: 13px; margin-top: 8px; }
+
+/* ── Modal (Membrete + Email) ─────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  display: none;
+}
+.modal-overlay.open { display: flex; }
+.modal-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 32px;
+  width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 40px rgba(0,0,0,.25);
+}
+.modal-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; color: var(--verde); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-group { margin-bottom: 14px; }
+.upload-area {
+  border: 2px dashed var(--borde);
+  border-radius: 8px;
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.upload-area:hover { border-color: var(--verde); }
+.upload-area img { max-height: 60px; max-width: 160px; object-fit: contain; display: block; margin: 0 auto 8px; }
+.upload-area p { font-size: 12px; color: var(--gris); }
+.btn-modal-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+.btn-secondary {
+  padding: 9px 18px; border: 1px solid var(--borde);
+  border-radius: 6px; cursor: pointer;
+  font-size: 14px; background: #fff; color: #333;
+}
+.btn-primary {
+  padding: 9px 18px; border: none;
+  border-radius: 6px; cursor: pointer;
+  font-size: 14px; font-weight: 700;
+  background: var(--verde); color: #fff;
+}
+
+/* ── @media print ─────────────────────────────────────────────── */
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .navbar, .sidebar, .editor-toolbar { display: none !important; }
+  .layout, .main { display: block !important; overflow: visible !important; }
+  .doc-scroll { padding: 0 !important; overflow: visible !important; }
+  .doc-page { box-shadow: none !important; width: 100% !important; min-height: 0 !important; }
+  .doc-content { padding: 20px 60px !important; }
+  body { background: #fff !important; height: auto !important; overflow: visible !important; }
+  .modal-overlay { display: none !important; }
+}
+
+/* ── Toast ─────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: #1F2937; color: #fff;
+  padding: 12px 20px; border-radius: 8px;
+  font-size: 14px; z-index: 9999;
+  transform: translateY(80px); opacity: 0;
+  transition: all .3s;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { background: #065F46; }
+.toast.error { background: #991B1B; }
+
+/* ── Loading skeleton ──────────────────────────────────────────── */
+.loading { text-align: center; padding: 40px; color: var(--gris); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">Veeduría <span>NUMA</span></div>
+    <div class="login-sub">Editor de Denuncias — Acceso restringido</div>
+    <label class="form-label">URL del servidor</label>
+    <input class="form-input" id="loginUrl" type="url" value="http://localhost:3002" placeholder="https://...">
+    <label class="form-label">Clave de acceso</label>
+    <input class="form-input" id="loginKey" type="password" placeholder="VEEDOR_SECRET">
+    <button class="btn-login" onclick="doLogin()">Ingresar</button>
+    <div class="login-error" id="loginError"></div>
+  </div>
+</div>
+
+<!-- Navbar -->
+<div class="navbar">
+  <div class="navbar-brand">Veeduría <span>NUMA</span> — Denuncias</div>
+  <div class="navbar-spacer"></div>
+  <span id="navStatus" style="font-size:12px;opacity:.7;"></span>
+</div>
+
+<!-- Layout -->
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" id="tab-buscar" onclick="switchTab('buscar')">🔍 Buscar</button>
+      <button class="sidebar-tab" id="tab-expedientes" onclick="switchTab('expedientes')">📁 Denuncias</button>
+    </div>
+
+    <!-- Panel Búsqueda -->
+    <div class="sidebar-panel active" id="panel-buscar">
+      <div class="busqueda-form" id="busquedaForm">
+        <div class="busqueda-field">
+          <label class="busqueda-label">Entidad</label>
+          <input class="busqueda-input" id="f_entidad" type="text" placeholder="Nombre o parte del nombre">
+        </div>
+        <div class="busqueda-field">
+          <label class="busqueda-label">Contratista</label>
+          <input class="busqueda-input" id="f_contratista" type="text" placeholder="Nombre del proveedor">
+        </div>
+        <div class="busqueda-field">
+          <label class="busqueda-label">Objeto del contrato</label>
+          <input class="busqueda-input" id="f_objeto" type="text" placeholder="Palabras clave">
+        </div>
+        <div class="busqueda-row">
+          <div class="busqueda-field">
+            <label class="busqueda-label">Valor mínimo</label>
+            <input class="busqueda-input" id="f_valorMin" type="number" placeholder="0">
+          </div>
+          <div class="busqueda-field">
+            <label class="busqueda-label">Valor máximo</label>
+            <input class="busqueda-input" id="f_valorMax" type="number" placeholder="sin límite">
+          </div>
+        </div>
+        <div class="busqueda-row">
+          <div class="busqueda-field">
+            <label class="busqueda-label">Desde</label>
+            <input class="busqueda-input" id="f_desde" type="date">
+          </div>
+          <div class="busqueda-field">
+            <label class="busqueda-label">Hasta</label>
+            <input class="busqueda-input" id="f_hasta" type="date">
+          </div>
+        </div>
+        <div class="busqueda-field">
+          <label class="busqueda-label">Tipo de contrato</label>
+          <input class="busqueda-input" id="f_tipo" type="text" placeholder="Obra, Servicios, Suministro…">
+        </div>
+        <div class="busqueda-field">
+          <label class="busqueda-label">Modalidad</label>
+          <select class="busqueda-input" id="f_modalidad">
+            <option value="">Cualquiera</option>
+            <option value="Contratación directa">Contratación directa</option>
+            <option value="Licitación Pública">Licitación pública</option>
+            <option value="Selección Abreviada">Selección abreviada</option>
+            <option value="Concurso de Méritos">Concurso de méritos</option>
+            <option value="Mínima Cuantía">Mínima cuantía</option>
+          </select>
+        </div>
+        <button class="btn-buscar" id="btnBuscar" onclick="buscarContratos()">Buscar contratos</button>
+      </div>
+      <div class="busqueda-results" id="busquedaResults" style="display:none;"></div>
+    </div>
+
+    <!-- Panel Denuncias -->
+    <div class="sidebar-panel" id="panel-expedientes">
+      <div class="sidebar-header">
+        <span>Denuncias</span>
+        <button class="btn-tool" onclick="loadExpedientes()" title="Recargar">↻</button>
+      </div>
+      <div class="sidebar-list" id="sidebarList">
+        <div class="loading">Cargando...</div>
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="btn-config" onclick="openMembrete()">⚙ Configurar membrete</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div class="main" id="mainArea">
+    <div class="empty-state" id="emptyState">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        <polyline points="10 9 9 9 8 9"/>
+      </svg>
+      <p>Selecciona un expediente con denuncia</p>
+    </div>
+
+    <!-- Toolbar (hidden until doc loaded) -->
+    <div class="editor-toolbar" id="editorToolbar" style="display:none;">
+      <button class="btn-tool" onclick="fmt('bold')" title="Negrita"><b>B</b></button>
+      <button class="btn-tool" onclick="fmt('italic')" title="Cursiva"><i>I</i></button>
+      <button class="btn-tool" onclick="fmt('underline')" title="Subrayado"><u>U</u></button>
+      <div class="toolbar-sep"></div>
+      <button class="btn-tool" onclick="fmtBlock('h1')" title="Título">H1</button>
+      <button class="btn-tool" onclick="fmtBlock('h2')" title="Subtítulo">H2</button>
+      <button class="btn-tool" onclick="fmtBlock('p')" title="Párrafo">P</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn-tool" onclick="fmt('insertUnorderedList')" title="Lista">• —</button>
+      <button class="btn-tool" onclick="fmt('insertOrderedList')" title="Lista numerada">1.</button>
+      <div class="toolbar-sep"></div>
+      <button class="btn-tool" onclick="fmt('undo')" title="Deshacer">↩</button>
+      <button class="btn-tool" onclick="fmt('redo')" title="Rehacer">↪</button>
+      <div class="toolbar-spacer"></div>
+      <span class="save-indicator" id="saveIndicator"></span>
+      <div class="toolbar-actions">
+        <button class="btn-action btn-save" onclick="saveDenuncia()">💾 Guardar</button>
+        <button class="btn-action btn-print" onclick="window.print()">🖨 PDF</button>
+        <button class="btn-action btn-send" onclick="openEmail()">📧 Enviar</button>
+      </div>
+    </div>
+
+    <!-- Document -->
+    <div class="doc-scroll" id="docScroll" style="display:none;">
+      <div class="doc-page">
+        <!-- Letterhead -->
+        <div id="letterheadArea"></div>
+
+        <!-- Editor -->
+        <div
+          class="doc-content"
+          id="docContent"
+          contenteditable="true"
+          spellcheck="false"
+          onblur="markDirty()"
+          oninput="markDirty()"
+        ></div>
+
+        <!-- Firma -->
+        <div class="firma-section" id="firmaSection" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Membrete -->
+<div class="modal-overlay" id="membreteModal">
+  <div class="modal-card">
+    <div class="modal-title">⚙ Configurar membrete</div>
+    <div class="form-row">
+      <div class="field-group" style="grid-column:1/-1;">
+        <label class="form-label">Nombre de la organización / veeduría</label>
+        <input class="form-input" id="mb_nombre_org" type="text" placeholder="Corporación Veeduría Ciudadana...">
+      </div>
+      <div class="field-group">
+        <label class="form-label">Ciudad</label>
+        <input class="form-input" id="mb_ciudad" type="text" placeholder="Bogotá D.C.">
+      </div>
+      <div class="field-group">
+        <label class="form-label">Teléfono</label>
+        <input class="form-input" id="mb_telefono" type="text" placeholder="+57 1 234 5678">
+      </div>
+      <div class="field-group">
+        <label class="form-label">Nombre del firmante</label>
+        <input class="form-input" id="mb_nombre_firmante" type="text" placeholder="Juan Pérez Gómez">
+      </div>
+      <div class="field-group">
+        <label class="form-label">Cargo</label>
+        <input class="form-input" id="mb_cargo_firmante" type="text" placeholder="Director Ejecutivo">
+      </div>
+      <div class="field-group" style="grid-column:1/-1;">
+        <label class="form-label">Correo remitente (para envío de emails)</label>
+        <input class="form-input" id="mb_email_remitente" type="email" placeholder="denuncia@veeduria.org">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field-group">
+        <label class="form-label">Logo de la organización</label>
+        <div class="upload-area" onclick="document.getElementById('logoInput').click()">
+          <img id="logoPreview" style="display:none;">
+          <p id="logoPlaceholder">Clic para subir imagen<br>(PNG, JPG — recomendado 200×80px)</p>
+          <input type="file" id="logoInput" accept="image/*" style="display:none;" onchange="handleImgUpload('logo', this)">
+        </div>
+        <button onclick="clearImg('logo')" style="font-size:11px;color:#999;background:none;border:none;cursor:pointer;margin-top:4px;">× Quitar logo</button>
+      </div>
+      <div class="field-group">
+        <label class="form-label">Imagen de firma</label>
+        <div class="upload-area" onclick="document.getElementById('firmaInput').click()">
+          <img id="firmaPreview" style="display:none;">
+          <p id="firmaPlaceholder">Clic para subir firma<br>(PNG con fondo transparente ideal)</p>
+          <input type="file" id="firmaInput" accept="image/*" style="display:none;" onchange="handleImgUpload('firma', this)">
+        </div>
+        <button onclick="clearImg('firma')" style="font-size:11px;color:#999;background:none;border:none;cursor:pointer;margin-top:4px;">× Quitar firma</button>
+      </div>
+    </div>
+    <div class="btn-modal-row">
+      <button class="btn-secondary" onclick="closeMembrete()">Cancelar</button>
+      <button class="btn-primary" onclick="saveMembrete()">Guardar membrete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Enviar email -->
+<div class="modal-overlay" id="emailModal">
+  <div class="modal-card" style="width:420px;">
+    <div class="modal-title">📧 Enviar denuncia por correo</div>
+    <div class="field-group">
+      <label class="form-label">Destinatario(s)</label>
+      <input class="form-input" id="email_destinatario" type="email" placeholder="contralorla@contraloria.gov.co">
+      <p style="font-size:11px;color:var(--gris);margin-top:4px;">Múltiples: separar con comas</p>
+    </div>
+    <div class="field-group">
+      <label class="form-label">Asunto</label>
+      <input class="form-input" id="email_asunto" type="text" placeholder="Denuncia por irregularidades en contratación pública">
+    </div>
+    <div style="background:var(--verde-pale);border-radius:8px;padding:12px;font-size:12px;color:#444;margin-bottom:8px;">
+      ⚠️ El correo se enviará con el membrete configurado + el contenido actual del editor.
+      Asegúrate de guardar antes de enviar.
+    </div>
+    <div class="btn-modal-row">
+      <button class="btn-secondary" onclick="closeEmail()">Cancelar</button>
+      <button class="btn-primary" onclick="sendEmail()">Enviar ahora</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────
+const S = {
+  baseUrl: '',
+  token: '',
+  expedientes: [],
+  selectedExp: null,
+  selectedActuacion: null,
+  membrete: {},
+  dirty: false,
+  saving: false,
+  searchResults: [],
+};
+
+// ── Init ────────────────────────────────────────────────────────
+window.onload = () => {
+  const saved = sessionStorage.getItem('veedor_auth');
+  if (saved) {
+    const { baseUrl, token } = JSON.parse(saved);
+    S.baseUrl = baseUrl;
+    S.token = token;
+    document.getElementById('loginOverlay').style.display = 'none';
+    init();
+  }
+};
+
+async function doLogin() {
+  const url = document.getElementById('loginUrl').value.replace(/\/$/, '');
+  const key = document.getElementById('loginKey').value;
+  document.getElementById('loginError').textContent = '';
+  try {
+    const r = await fetch(`${url}/health`);
+    if (!r.ok) throw new Error('Servidor no responde');
+    // Try auth
+    const r2 = await fetch(`${url}/status`, { headers: { Authorization: `Bearer ${key}` } });
+    if (r2.status === 401 || r2.status === 403) throw new Error('Clave incorrecta');
+    S.baseUrl = url;
+    S.token = key;
+    sessionStorage.setItem('veedor_auth', JSON.stringify({ baseUrl: url, token: key }));
+    document.getElementById('loginOverlay').style.display = 'none';
+    init();
+  } catch (e) {
+    document.getElementById('loginError').textContent = e.message;
+  }
+}
+
+async function init() {
+  await Promise.all([loadExpedientes(), loadMembrete()]);
+}
+
+// ── API helpers ──────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch(`${S.baseUrl}${path}`, {
+    headers: { Authorization: `Bearer ${S.token}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    ...opts,
+  });
+  if (!r.ok) {
+    const err = await r.text();
+    throw new Error(`HTTP ${r.status}: ${err.slice(0, 200)}`);
+  }
+  return r.json();
+}
+
+// ── Expedientes ──────────────────────────────────────────────────
+async function loadExpedientes() {
+  try {
+    const data = await api('/veeduria/expedientes?limite=100');
+    S.expedientes = (data.expedientes || []).filter(e =>
+      ['denuncia_borrador', 'denuncia_enviada', 'auditado'].includes(e.estado)
+    );
+    renderSidebar();
+  } catch (e) {
+    document.getElementById('sidebarList').innerHTML =
+      `<div style="padding:16px;font-size:12px;color:#DC2626;">${e.message}</div>`;
+  }
+}
+
+function renderSidebar() {
+  const list = document.getElementById('sidebarList');
+  if (!S.expedientes.length) {
+    list.innerHTML = '<div style="padding:16px;font-size:12px;color:var(--gris);">Sin expedientes con denuncia</div>';
+    return;
+  }
+  list.innerHTML = S.expedientes.map(e => {
+    const badgeClass = e.estado === 'denuncia_enviada' ? 'badge-enviada' : e.estado === 'auditado' ? 'badge-auditado' : 'badge-denuncia';
+    const badgeText = e.estado === 'denuncia_enviada' ? 'Enviada' : e.estado === 'auditado' ? 'Auditado' : 'Borrador';
+    const isActive = S.selectedExp?.id === e.id ? ' active' : '';
+    const valor = e.valor_contrato ? `$${(e.valor_contrato/1e6).toFixed(1)}M` : '';
+    return `<div class="exp-item${isActive}" onclick="selectExpediente('${e.id}')">
+      <div class="exp-item-ref">${e.referencia_contrato || e.id_contrato || e.id}</div>
+      <div class="exp-item-ent">${e.entidad || '—'}</div>
+      <div class="exp-item-meta">
+        <span class="badge ${badgeClass}">${badgeText}</span>
+        ${valor ? `<span>${valor}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function selectExpediente(id) {
+  try {
+    document.getElementById('navStatus').textContent = 'Cargando...';
+    const data = await api(`/veeduria/expediente/${id}`);
+    S.selectedExp = data.expediente;
+    // Find denuncia actuacion
+    const denuncia = (data.actuaciones || []).find(a => a.tipo === 'denuncia');
+    if (!denuncia) {
+      toast('Este expediente no tiene denuncia aún', 'error');
+      document.getElementById('navStatus').textContent = '';
+      return;
+    }
+    S.selectedActuacion = denuncia;
+    S.dirty = false;
+    renderSidebar();
+    renderDocument();
+    document.getElementById('navStatus').textContent = `${data.expediente?.referencia_contrato || id} · ${data.actuaciones?.length || 0} actuaciones`;
+  } catch (e) {
+    toast(e.message, 'error');
+    document.getElementById('navStatus').textContent = '';
+  }
+}
+
+// ── Document rendering ───────────────────────────────────────────
+function renderDocument() {
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('editorToolbar').style.display = 'flex';
+  document.getElementById('docScroll').style.display = 'flex';
+
+  renderLetterhead();
+  renderContent();
+  renderFirma();
+  setIndicator('');
+}
+
+function renderLetterhead() {
+  const mb = S.membrete;
+  const area = document.getElementById('letterheadArea');
+  if (mb.nombre_org || mb.logo_base64) {
+    const logo = mb.logo_base64
+      ? `<img class="letterhead-logo" src="${mb.logo_base64}">`
+      : '';
+    const fecha = new Date().toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
+    area.innerHTML = `<div class="letterhead">
+      ${logo}
+      <div class="letterhead-info">
+        <div class="letterhead-org">${mb.nombre_org || ''}</div>
+        <div class="letterhead-sub">${[mb.ciudad, mb.telefono].filter(Boolean).join(' · ')}</div>
+      </div>
+      <div class="letterhead-date">${fecha}</div>
+    </div>`;
+  } else {
+    area.innerHTML = `<div class="letterhead-empty" onclick="openMembrete()">
+      + Configurar membrete (logo, organización, firmante)
+    </div>`;
+  }
+}
+
+function renderContent() {
+  const el = document.getElementById('docContent');
+  // Strip outer html/body tags if present
+  let html = S.selectedActuacion?.contenido_html || '';
+  html = html.replace(/<!DOCTYPE[^>]*>/gi, '')
+             .replace(/<html[^>]*>/gi, '').replace(/<\/html>/gi, '')
+             .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, '')
+             .replace(/<body[^>]*>/gi, '').replace(/<\/body>/gi, '')
+             .trim();
+  el.innerHTML = html;
+}
+
+function renderFirma() {
+  const mb = S.membrete;
+  const sec = document.getElementById('firmaSection');
+  if (mb.nombre_firmante || mb.firma_base64) {
+    sec.style.display = 'block';
+    sec.innerHTML = `
+      ${mb.firma_base64 ? `<img src="${mb.firma_base64}" style="max-height:70px;max-width:200px;display:block;">` : ''}
+      <div class="firma-name">${mb.nombre_firmante || ''}</div>
+      <div class="firma-cargo">${mb.cargo_firmante || ''}</div>
+    `;
+  } else {
+    sec.style.display = 'none';
+  }
+}
+
+// ── Editor ───────────────────────────────────────────────────────
+function fmt(cmd) { document.execCommand(cmd, false, null); }
+function fmtBlock(tag) { document.execCommand('formatBlock', false, `<${tag}>`); }
+function markDirty() {
+  if (!S.dirty) {
+    S.dirty = true;
+    setIndicator('● Sin guardar');
+  }
+}
+function setIndicator(txt) {
+  document.getElementById('saveIndicator').textContent = txt;
+}
+
+// ── Save ─────────────────────────────────────────────────────────
+async function saveDenuncia() {
+  if (!S.selectedActuacion) return;
+  if (S.saving) return;
+  S.saving = true;
+  setIndicator('Guardando...');
+  try {
+    const html = document.getElementById('docContent').innerHTML;
+    await api(`/veeduria/actuacion/${S.selectedActuacion.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ contenido_html: html }),
+    });
+    S.selectedActuacion.contenido_html = html;
+    S.dirty = false;
+    setIndicator('✓ Guardado');
+    setTimeout(() => setIndicator(''), 2500);
+  } catch (e) {
+    toast(e.message, 'error');
+    setIndicator('⚠ Error al guardar');
+  } finally {
+    S.saving = false;
+  }
+}
+
+// ── Membrete ──────────────────────────────────────────────────────
+async function loadMembrete() {
+  try {
+    S.membrete = await api('/veeduria/membrete');
+  } catch { S.membrete = {}; }
+}
+
+function openMembrete() {
+  const mb = S.membrete;
+  ['nombre_org', 'ciudad', 'telefono', 'nombre_firmante', 'cargo_firmante', 'email_remitente'].forEach(k => {
+    const el = document.getElementById(`mb_${k}`);
+    if (el) el.value = mb[k] || '';
+  });
+  // Logo preview
+  const lp = document.getElementById('logoPreview');
+  const lph = document.getElementById('logoPlaceholder');
+  if (mb.logo_base64) { lp.src = mb.logo_base64; lp.style.display = 'block'; lph.style.display = 'none'; }
+  else { lp.style.display = 'none'; lph.style.display = 'block'; }
+  // Firma preview
+  const fp = document.getElementById('firmaPreview');
+  const fph = document.getElementById('firmaPlaceholder');
+  if (mb.firma_base64) { fp.src = mb.firma_base64; fp.style.display = 'block'; fph.style.display = 'none'; }
+  else { fp.style.display = 'none'; fph.style.display = 'block'; }
+  document.getElementById('membreteModal').classList.add('open');
+}
+
+function closeMembrete() { document.getElementById('membreteModal').classList.remove('open'); }
+
+async function saveMembrete() {
+  const mb = {};
+  ['nombre_org', 'ciudad', 'telefono', 'nombre_firmante', 'cargo_firmante', 'email_remitente'].forEach(k => {
+    mb[k] = document.getElementById(`mb_${k}`).value.trim();
+  });
+  mb.logo_base64 = document.getElementById('logoPreview').src || S.membrete.logo_base64 || null;
+  mb.firma_base64 = document.getElementById('firmaPreview').src || S.membrete.firma_base64 || null;
+  // Clear if src is empty string
+  if (!mb.logo_base64 || mb.logo_base64 === window.location.href) mb.logo_base64 = null;
+  if (!mb.firma_base64 || mb.firma_base64 === window.location.href) mb.firma_base64 = null;
+  try {
+    await api('/veeduria/membrete', { method: 'POST', body: JSON.stringify(mb) });
+    S.membrete = mb;
+    closeMembrete();
+    if (S.selectedActuacion) renderDocument();
+    toast('Membrete guardado ✓', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function handleImgUpload(tipo, input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const data = e.target.result;
+    if (tipo === 'logo') {
+      document.getElementById('logoPreview').src = data;
+      document.getElementById('logoPreview').style.display = 'block';
+      document.getElementById('logoPlaceholder').style.display = 'none';
+    } else {
+      document.getElementById('firmaPreview').src = data;
+      document.getElementById('firmaPreview').style.display = 'block';
+      document.getElementById('firmaPlaceholder').style.display = 'none';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearImg(tipo) {
+  if (tipo === 'logo') {
+    document.getElementById('logoPreview').src = '';
+    document.getElementById('logoPreview').style.display = 'none';
+    document.getElementById('logoPlaceholder').style.display = 'block';
+    document.getElementById('logoInput').value = '';
+  } else {
+    document.getElementById('firmaPreview').src = '';
+    document.getElementById('firmaPreview').style.display = 'none';
+    document.getElementById('firmaPlaceholder').style.display = 'block';
+    document.getElementById('firmaInput').value = '';
+  }
+}
+
+// ── Email ─────────────────────────────────────────────────────────
+function openEmail() {
+  if (!S.selectedActuacion) return;
+  const exp = S.selectedExp;
+  document.getElementById('email_asunto').value =
+    `Denuncia ciudadana — irregularidades en ${exp?.referencia_contrato || exp?.id_contrato || ''} — ${exp?.entidad || ''}`;
+  document.getElementById('emailModal').classList.add('open');
+}
+function closeEmail() { document.getElementById('emailModal').classList.remove('open'); }
+
+async function sendEmail() {
+  if (!S.selectedActuacion || !S.selectedExp) return;
+  const destinatario = document.getElementById('email_destinatario').value.trim();
+  const asunto = document.getElementById('email_asunto').value.trim();
+  if (!destinatario) { toast('Ingresa un destinatario', 'error'); return; }
+  try {
+    // Save current state first
+    if (S.dirty) await saveDenuncia();
+    await api(`/veeduria/expediente/${S.selectedExp.id}/enviar-denuncia`, {
+      method: 'POST',
+      body: JSON.stringify({ destinatario, asunto, actuacion_id: S.selectedActuacion.id }),
+    });
+    closeEmail();
+    toast(`Denuncia enviada a ${destinatario} ✓`, 'success');
+    await loadExpedientes();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ── Toast ──────────────────────────────────────────────────────────
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+// ── Tab switching ────────────────────────────────────────────────
+function switchTab(tab) {
+  ['buscar', 'expedientes'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('active', t === tab);
+    document.getElementById(`panel-${t}`).classList.toggle('active', t === tab);
+  });
+}
+
+// ── Búsqueda de contratos SECOP ──────────────────────────────────
+async function buscarContratos() {
+  const btn = document.getElementById('btnBuscar');
+  const resultsEl = document.getElementById('busquedaResults');
+  const formEl = document.getElementById('busquedaForm');
+
+  const filtros = {};
+  const entidad = document.getElementById('f_entidad').value.trim();
+  const contratista = document.getElementById('f_contratista').value.trim();
+  const objeto = document.getElementById('f_objeto').value.trim();
+  const valorMin = document.getElementById('f_valorMin').value.trim();
+  const valorMax = document.getElementById('f_valorMax').value.trim();
+  const desde = document.getElementById('f_desde').value;
+  const hasta = document.getElementById('f_hasta').value;
+  const tipo = document.getElementById('f_tipo').value.trim();
+  const modalidad = document.getElementById('f_modalidad').value;
+
+  if (entidad) filtros.entidad = entidad;
+  if (contratista) filtros.contratista = contratista;
+  if (objeto) filtros.objeto = objeto;
+  if (valorMin) filtros.valorMin = Number(valorMin);
+  if (valorMax) filtros.valorMax = Number(valorMax);
+  if (desde) filtros.desde = desde;
+  if (hasta) filtros.hasta = hasta;
+  if (tipo) filtros.tipo = tipo;
+  if (modalidad) filtros.modalidad = modalidad;
+  filtros.limite = 50;
+
+  btn.disabled = true;
+  btn.textContent = 'Buscando…';
+  formEl.style.display = 'none';
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = '<div class="res-empty">Consultando datos.gov.co…</div>';
+
+  try {
+    const params = new URLSearchParams(Object.entries(filtros).map(([k, v]) => [k, String(v)]));
+    const data = await api(`/veeduria/buscar?${params}`);
+    const contratos = data.contratos || [];
+
+    if (!contratos.length) {
+      resultsEl.innerHTML = '<div class="res-empty">Sin resultados. Prueba con otros filtros o un rango de fechas más amplio.</div>';
+    } else {
+      const fmt = (v) => v >= 1e9 ? `$${(v/1e9).toFixed(1)}B` : v >= 1e6 ? `$${(v/1e6).toFixed(0)}M` : `$${(v/1e3).toFixed(0)}K`;
+      resultsEl.innerHTML = `
+        <div class="res-header">
+          <span class="res-count">${contratos.length} contratos</span>
+          <button onclick="volverBusqueda()" style="font-size:11px;background:none;border:none;cursor:pointer;color:var(--gris);">← Filtros</button>
+        </div>
+        ${contratos.map((c, i) => `
+          <div class="res-item" onclick="verContrato(${i})">
+            <div class="res-ref">${c.referencia || c.proceso || c.id_contrato || '—'}</div>
+            <div class="res-ent">${c.entidad || '—'}</div>
+            <div class="res-obj">${(c.objeto || '').slice(0, 90)}</div>
+            <div class="res-meta">
+              <span>${fmt(c.valor)}</span>
+              <span>${c.fecha_firma || ''}</span>
+            </div>
+          </div>
+        `).join('')}
+      `;
+      S.searchResults = contratos;
+    }
+  } catch (e) {
+    resultsEl.innerHTML = `<div class="res-empty" style="color:#DC2626;">Error: ${e.message}</div>
+      <div style="text-align:center;padding:8px;">
+        <button onclick="volverBusqueda()" style="font-size:12px;background:var(--verde-pale);border:1px solid var(--borde);padding:6px 12px;border-radius:5px;cursor:pointer;">← Volver</button>
+      </div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Buscar contratos';
+  }
+}
+
+function volverBusqueda() {
+  document.getElementById('busquedaResults').style.display = 'none';
+  document.getElementById('busquedaForm').style.display = 'block';
+}
+
+function verContrato(idx) {
+  const c = S.searchResults?.[idx];
+  if (!c) return;
+  // Muestra detalles del contrato seleccionado en el área principal
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('editorToolbar').style.display = 'none';
+  document.getElementById('docScroll').style.display = 'none';
+
+  const main = document.getElementById('mainArea');
+  let detEl = document.getElementById('contratoDetail');
+  if (!detEl) {
+    detEl = document.createElement('div');
+    detEl.id = 'contratoDetail';
+    detEl.style.cssText = 'flex:1;overflow-y:auto;padding:32px;';
+    main.appendChild(detEl);
+  }
+  detEl.style.display = 'block';
+
+  const fmt = (v) => v ? '$' + Number(v).toLocaleString('es-CO') : '—';
+  detEl.innerHTML = `
+    <div style="max-width:720px;margin:0 auto;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;">
+        <div>
+          <div style="font-size:11px;color:var(--gris);text-transform:uppercase;letter-spacing:.05em;">Contrato SECOP II</div>
+          <div style="font-size:20px;font-weight:800;color:var(--verde);margin-top:4px;">${c.referencia || c.proceso || '—'}</div>
+        </div>
+        <button onclick="document.getElementById('contratoDetail').style.display='none';document.getElementById('emptyState').style.display='flex';"
+          style="font-size:12px;padding:6px 12px;border:1px solid var(--borde);border-radius:6px;cursor:pointer;background:#fff;">
+          ✕ Cerrar
+        </button>
+      </div>
+
+      <div style="background:#fff;border-radius:10px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:16px;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <tr><td style="padding:8px 0;color:var(--gris);width:40%;border-bottom:1px solid var(--verde-pale);">Entidad</td>
+              <td style="padding:8px 0;font-weight:600;border-bottom:1px solid var(--verde-pale);">${c.entidad || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">NIT Entidad</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.nit_entidad || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Contratista</td>
+              <td style="padding:8px 0;font-weight:600;border-bottom:1px solid var(--verde-pale);">${c.contratista || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">NIT Contratista</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.nit_contratista || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Rep. Legal</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.representante_legal || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Valor</td>
+              <td style="padding:8px 0;font-weight:700;color:var(--verde);font-size:15px;border-bottom:1px solid var(--verde-pale);">${fmt(c.valor)}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Fecha de firma</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.fecha_firma || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Estado</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.estado || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Tipo</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.tipo || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Modalidad</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.modalidad || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);border-bottom:1px solid var(--verde-pale);">Sector</td>
+              <td style="padding:8px 0;border-bottom:1px solid var(--verde-pale);">${c.sector || '—'} / ${c.orden || '—'}</td></tr>
+          <tr><td style="padding:8px 0;color:var(--gris);">Ubicación</td>
+              <td style="padding:8px 0;">${c.departamento || ''} ${c.ciudad ? '· ' + c.ciudad : ''}</td></tr>
+        </table>
+      </div>
+
+      <div style="background:#fff;border-radius:10px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:16px;">
+        <div style="font-size:11px;color:var(--gris);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;">Objeto del contrato</div>
+        <div style="font-size:13px;line-height:1.6;color:#333;">${c.objeto || '—'}</div>
+      </div>
+
+      ${c.proceso ? `
+      <div style="background:var(--verde-pale);border-radius:10px;padding:16px;margin-bottom:16px;display:flex;gap:12px;align-items:center;">
+        <div style="font-size:12px;flex:1;color:var(--verde);">
+          <strong>Proceso SECOP:</strong> ${c.proceso}
+        </div>
+        <a href="https://www.colombiacompra.gov.co/secop/detalle-del-proceso?_id_comproportal=${c.proceso}" target="_blank"
+           style="font-size:12px;padding:7px 14px;background:var(--verde);color:#fff;border-radius:6px;text-decoration:none;white-space:nowrap;">
+          Ver en SECOP ↗
+        </a>
+      </div>` : ''}
+
+      <div style="text-align:right;">
+        <button onclick="iniciarAuditoria('${c.id_contrato || c.proceso}', ${idx})"
+          style="padding:12px 28px;background:var(--verde);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+          Iniciar auditoría →
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+async function iniciarAuditoria(idContrato, idx) {
+  const c = S.searchResults?.[idx];
+  if (!c) return;
+  toast('Iniciando auditoría…');
+  // In the future: call /veeduria/auditar. For now, show info.
+  toast(`Contrato ${idContrato} listo para auditar. Usa el pipeline del server para procesarlo.`);
+}
+
+// ── Keyboard shortcuts ─────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    saveDenuncia();
+  }
+});
+</script>
+</body>
+</html>
