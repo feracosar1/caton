@@ -26,8 +26,8 @@ jobs:
             # Instalar dependencias nuevas si hay cambios en package.json
             npm install --omit=dev
 
-            # Reiniciar proceso
-            pm2 restart caton || pm2 start veedor-server.mjs --name caton
+            # Reiniciar proceso (nombre: caton)
+            pm2 restart caton --update-env || pm2 start veedor-server.mjs --name caton --cwd ~/caton
             pm2 save
 
             echo "Deploy OK — $(date)"
