@@ -7,7 +7,7 @@
 # El browser llama /api/veedor/* (HTTPS), Netlify lo reenvía al VM (HTTP interno)
 [[redirects]]
   from   = "/api/veedor/*"
-  to     = "http://20.84.48.138:3002/:splat"
+  to     = "https://veedor-api.numa.la/:splat"
   status = 200
   force  = true
 
