@@ -3,6 +3,14 @@
   command = "npm run build"
   publish = "dist"
 
+# Proxy al servidor veedor en Azure VM
+# El browser llama /api/veedor/* (HTTPS), Netlify lo reenvía al VM (HTTP interno)
+[[redirects]]
+  from   = "/api/veedor/*"
+  to     = "http://20.84.48.138:3002/:splat"
+  status = 200
+  force  = true
+
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
