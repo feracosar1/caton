@@ -11,6 +11,7 @@
  */
 
 import { buscarContratos, resumenBusqueda } from './busqueda.mjs';
+import { scorearContrato } from './score-contrato.mjs';
 import { contratistaRecurrente, repLegalMultiple, fraccionamiento, perfilContratista, barridoRed, barridoRedMultiple, detectarCarruseles, evolucionRed, carruselPorConcentracion } from './grafo-contratistas.mjs';
 import { auditarContrato } from './pipeline.mjs';
 import { analisisDeterminista } from './analisis-determinista.mjs';
@@ -18,6 +19,75 @@ import { crearRepo } from './repo-veeduria.mjs';
 import { concentracionSupervisores, cruzamientoSupervisores } from './motor-supervisores.mjs';
 import { objetosDuplicados, actasAntesDeRegistro } from './motor-similitud.mjs';
 import { encrypt, obtenerSmtpOrg, sendViaSmtp, sendViaResend } from './smtp-utils.mjs';
+
+/**
+ * Busca contratos en la tabla local secop_contratos (ingesta previa).
+ * Evita ir a Socrata en tiempo real y sortea el timeout de 26s de Netlify.
+ * Filtra sobre columnas indexadas + raw JSONB para estado/tipo/modalidad/depto.
+ */
+async function buscarLocal(supabase, filtros = {}) {
+  let q = supabase.from('secop_contratos')
+    .select('id, id_proceso, entidad, nit_entidad, contratista, nit_contratista, valor_contrato, fecha_firma, objeto, raw')
+    .order('fecha_firma', { ascending: false })
+    .limit(Number(filtros.limite) || 100);
+
+  if (filtros.entidad)        q = q.ilike('entidad', `%${filtros.entidad}%`);
+  if (filtros.nitEntidad)     q = q.eq('nit_entidad', filtros.nitEntidad);
+  if (filtros.contratista)    q = q.ilike('contratista', `%${filtros.contratista}%`);
+  if (filtros.nitContratista) q = q.eq('nit_contratista', filtros.nitContratista);
+  if (filtros.objeto)         q = q.ilike('objeto', `%${filtros.objeto}%`);
+  if (filtros.valorMin != null) q = q.gte('valor_contrato', Number(filtros.valorMin));
+  if (filtros.valorMax != null) q = q.lte('valor_contrato', Number(filtros.valorMax));
+  if (filtros.desde)          q = q.gte('fecha_firma', filtros.desde);
+  if (filtros.hasta)          q = q.lte('fecha_firma', filtros.hasta + 'T23:59:59');
+  if (filtros.sinRuido)       q = q.gt('valor_contrato', 0);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const out = (data || []).map(c => {
+    const r = c.raw || {};
+    const obj = {
+      id_contrato:          c.id,
+      referencia:           r.referencia_del_contrato || null,
+      proceso:              c.id_proceso,
+      entidad:              c.entidad,
+      nit_entidad:          c.nit_entidad,
+      contratista:          c.contratista,
+      nit_contratista:      c.nit_contratista,
+      representante_legal:  r.nombre_representante_legal || null,
+      valor:                Number(c.valor_contrato) || 0,
+      fecha_firma:          c.fecha_firma?.slice(0, 10),
+      estado:               r.estado_contrato,
+      tipo:                 r.tipo_de_contrato,
+      modalidad:            r.modalidad_de_contratacion,
+      objeto:               (c.objeto || '').slice(0, 180),
+      departamento:         r.departamento,
+      ciudad:               r.ciudad,
+      orden:                r.orden,
+      sector:               r.sector,
+      tipo_doc:             r.tipodocproveedor,
+      _auditar:             c.id,
+      _grafo:               c.nit_contratista,
+    };
+    return { ...obj, ...scorearContrato(obj) };
+  });
+
+  // Filtros post-query sobre raw (no tienen columna propia):
+  let res = out;
+  if (filtros.estado && filtros.estado !== 'todos') {
+    res = res.filter(c => c.estado === filtros.estado);
+  } else if (!filtros.estado) {
+    // Por defecto solo "En ejecución" — espejo de busqueda.mjs
+    res = res.filter(c => c.estado === 'En ejecución');
+  }
+  if (filtros.tipo)       res = res.filter(c => c.tipo?.toUpperCase().includes(filtros.tipo.toUpperCase()));
+  if (filtros.modalidad)  res = res.filter(c => c.modalidad?.toUpperCase().includes(filtros.modalidad.toUpperCase()));
+  if (filtros.soloEmpresas) res = res.filter(c => c.tipo_doc === 'NIT');
+  if (filtros.sinServiciosPersonales) res = res.filter(c => !(c.tipo?.toUpperCase().startsWith('PRESTACI') && c.tipo?.toUpperCase().includes('SERVICIOS') && c.tipo_doc !== 'NIT'));
+
+  return res.sort((a, b) => b.score - a.score);
+}
 
 export function montarVeeduria(app, { auth, supabase }) {
   const repo = crearRepo(supabase);
@@ -33,9 +103,17 @@ export function montarVeeduria(app, { auth, supabase }) {
   };
 
   // ── BÚSQUEDA (paso 3) ──
+  // Prioridad: DB local (ingesta ya procesada, < 1s). Si hay datos → los devuelve.
+  // Si la DB local está vacía para esa búsqueda → cae a Socrata (puede dar timeout
+  // en prod via Netlify proxy de 26s, pero solo para búsquedas sin datos locales).
   app.get('/veeduria/buscar', auth, async (req, res) => {
-    try { ok(res, { contratos: await buscarContratos({ ...req.query, ambito: parseAmbito(req) }) }); }
-    catch (e) { err(res, e); }
+    try {
+      const local = await buscarLocal(supabase, req.query);
+      if (local.length > 0) return ok(res, { contratos: local, fuente: 'local' });
+      // Fallback a Socrata solo si no hay datos locales
+      const contratos = await buscarContratos({ ...req.query, ambito: parseAmbito(req) });
+      ok(res, { contratos, fuente: 'secop' });
+    } catch (e) { err(res, e); }
   });
   app.get('/veeduria/resumen', auth, async (req, res) => {
     try { ok(res, await resumenBusqueda({ ...req.query, ambito: parseAmbito(req) })); }

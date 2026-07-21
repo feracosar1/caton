@@ -266,32 +266,44 @@ function detectarAlertas(p, historialNit = [], precioRef = null, alertasPliegos 
   return alertas;
 }
 
-// ── FASE 1: Ingesta de procesos (solo metadata, sin alertas) ──────────────────
-async function ingestar({ offset = 0 } = {}) {
+// ── FASE 1: Ingesta de procesos (loop paginado hasta agotar) ──────────────────
+async function ingestar({ offset = 0, departamento = null } = {}) {
   state.running = true; state.fase = 'procesos'; state.pipeline_fase = 'procesos';
   state.started_at = new Date().toISOString(); shouldStop = false;
   state.procesados = 0; state.errores = 0;
 
+  const deptoUpper = departamento ? departamento.toUpperCase() : null;
+  const where = deptoUpper
+    ? `precio_base > 50000000 AND upper(departamento_entidad) like '%${deptoUpper}%'`
+    : `precio_base > 50000000`;
+
+  let currentOffset = offset;
   try {
-    const url = secopUrl(EP_PROCESOS, {
-      $offset: String(offset),
-      $where: `precio_base > 50000000`,
-      $order: 'fecha_de_publicacion_del DESC',
-    });
-    console.log(`[VEEDOR] GET procesos offset=${offset}`);
-    const rows = await httpGet(url);
-    console.log(`[VEEDOR] ${rows.length} procesos recibidos`);
+    while (!shouldStop) {
+      const url = secopUrl(EP_PROCESOS, {
+        $offset: String(currentOffset),
+        $where: where,
+        $order: 'fecha_de_publicacion_del DESC',
+      });
+      console.log(`[VEEDOR] GET procesos offset=${currentOffset}`);
+      const rows = await httpGet(url);
+      console.log(`[VEEDOR] ${rows.length} procesos recibidos (offset ${currentOffset})`);
+      if (!rows.length) break;
 
-    for (const raw of rows) {
-      if (shouldStop) break;
-      const p = normalizarProceso(raw);
-      if (!p.id) { state.errores++; continue; }
+      for (const raw of rows) {
+        if (shouldStop) break;
+        const p = normalizarProceso(raw);
+        if (!p.id) { state.errores++; continue; }
 
-      const { error } = await supabase.from('secop_procesos').upsert(p, { onConflict: 'id' });
-      if (error) { console.error('[VEEDOR] upsert error:', error.message); state.errores++; continue; }
+        const { error } = await supabase.from('secop_procesos').upsert(p, { onConflict: 'id' });
+        if (error) { console.error('[VEEDOR] upsert error:', error.message); state.errores++; continue; }
 
-      state.procesados++;
-      state.ultimo = p.id;
+        state.procesados++;
+        state.ultimo = p.id;
+      }
+
+      if (rows.length < BATCH) break; // última página
+      currentOffset += BATCH;
     }
     console.log(`[VEEDOR] Fase 1 completa: ${state.procesados} procesos guardados`);
   } catch (err) {
@@ -301,47 +313,67 @@ async function ingestar({ offset = 0 } = {}) {
   }
 }
 
-// ── FASE 2: Ingesta de contratos + grafo ─────────────────────────────────────
-async function ingestarContratos({ offset = 0 } = {}) {
+// ── FASE 2: Ingesta de contratos + grafo (loop paginado) ─────────────────────
+async function ingestarContratos({ offset = 0, departamento = null } = {}) {
   state.running = true; state.fase = 'contratos'; state.pipeline_fase = 'contratos';
   state.contratos = 0; state.relaciones = 0;
 
+  const deptoUpper = departamento ? departamento.toUpperCase() : null;
+  // jbjy-vk9h usa "departamento" (no "departamento_entidad") y también "nit_entidad"
+  // Intentamos ambos campos con OR para cubrir variantes del dataset
+  // Solo contratos en ejecución — son los que el veedor puede actuar sobre ellos.
+  // El histórico (terminados/liquidados) no aporta al radar de alertas activas.
+  const baseWhere = `estado_contrato = 'En ejecuci\u00f3n'`;
+  const contratoWhere = deptoUpper
+    ? `${baseWhere} AND (upper(departamento_entidad) like '%${deptoUpper}%' OR upper(departamento) like '%${deptoUpper}%')`
+    : baseWhere;
+
+  let currentOffset = offset;
   try {
-    // La columna es `fecha_de_firma` — `fecha_de_firma_del_contrato` no existe en
-    // el dataset jbjy-vk9h y hacía que Socrata devolviera un error, no filas.
-    const url = secopUrl(EP_CONTRATOS, {
-      $offset: String(offset),
-      $order: 'fecha_de_firma DESC',
-    });
-    console.log(`[VEEDOR] GET contratos offset=${offset}`);
-    const rows = await httpGet(url);
-    console.log(`[VEEDOR] ${rows.length} contratos recibidos`);
+    while (!shouldStop) {
+      const params = {
+        $offset: String(currentOffset),
+        // La columna es `fecha_de_firma` — `fecha_de_firma_del_contrato` no existe en
+        // el dataset jbjy-vk9h y hacía que Socrata devolviera un error, no filas.
+        $order: 'fecha_de_firma DESC',
+      };
+      if (contratoWhere) params.$where = contratoWhere;
 
-    for (const raw of rows) {
-      if (shouldStop) break;
-      const c = normalizarContrato(raw);
-      if (!c.id) continue;
+      const url = secopUrl(EP_CONTRATOS, params);
+      console.log(`[VEEDOR] GET contratos offset=${currentOffset}`);
+      const rows = await httpGet(url);
+      console.log(`[VEEDOR] ${rows.length} contratos recibidos (offset ${currentOffset})`);
+      if (!rows.length) break;
 
-      await supabase.from('secop_contratos').upsert(c, { onConflict: 'id' });
-      state.contratos++;
+      for (const raw of rows) {
+        if (shouldStop) break;
+        const c = normalizarContrato(raw);
+        if (!c.id) continue;
 
-      if (c.nit_contratista && c.contratista) {
-        await supabase.from('secop_contratistas').upsert({
-          nit: c.nit_contratista, razon_social: c.contratista,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'nit' });
+        await supabase.from('secop_contratos').upsert(c, { onConflict: 'id' });
+        state.contratos++;
+
+        if (c.nit_contratista && c.contratista) {
+          await supabase.from('secop_contratistas').upsert({
+            nit: c.nit_contratista, razon_social: c.contratista,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'nit' });
+        }
+
+        if (c.nit_entidad && c.nit_contratista) {
+          const { error } = await supabase.from('secop_relaciones').upsert({
+            tipo: 'ADJUDICÓ',
+            nodo_origen_tipo: 'entidad',   nodo_origen_id: c.nit_entidad,
+            nodo_destino_tipo: 'contratista', nodo_destino_id: c.nit_contratista,
+            peso: c.valor_contrato || 1,
+            metadata: { id_contrato: c.id, valor: c.valor_contrato, fecha: c.fecha_firma, objeto: c.objeto?.slice(0, 200) },
+          }, { onConflict: 'tipo,nodo_origen_tipo,nodo_origen_id,nodo_destino_tipo,nodo_destino_id' });
+          if (!error) state.relaciones++;
+        }
       }
 
-      if (c.nit_entidad && c.nit_contratista) {
-        const { error } = await supabase.from('secop_relaciones').upsert({
-          tipo: 'ADJUDICÓ',
-          nodo_origen_tipo: 'entidad',   nodo_origen_id: c.nit_entidad,
-          nodo_destino_tipo: 'contratista', nodo_destino_id: c.nit_contratista,
-          peso: c.valor_contrato || 1,
-          metadata: { id_contrato: c.id, valor: c.valor_contrato, fecha: c.fecha_firma, objeto: c.objeto?.slice(0, 200) },
-        }, { onConflict: 'tipo,nodo_origen_tipo,nodo_origen_id,nodo_destino_tipo,nodo_destino_id' });
-        if (!error) state.relaciones++;
-      }
+      if (rows.length < BATCH) break; // última página
+      currentOffset += BATCH;
     }
     console.log(`[VEEDOR] Fase 2 completa: ${state.contratos} contratos, ${state.relaciones} relaciones`);
   } catch (err) {
@@ -468,11 +500,12 @@ async function scorear() {
 }
 
 // ── Pipeline completo (fases 1→2→3→4) ───────────────────────────────────────
-async function pipeline({ offset = 0, limite_pliegos = 50 } = {}) {
-  console.log('[VEEDOR] ▶ Pipeline iniciado');
-  await ingestar({ offset });
+async function pipeline({ offset = 0, limite_pliegos = 50, departamento = null } = {}) {
+  const depto = departamento || null;
+  console.log(`[VEEDOR] ▶ Pipeline iniciado${depto ? ` — departamento: ${depto}` : ''}`);
+  await ingestar({ offset, departamento: depto });
   if (shouldStop) { console.log('[VEEDOR] Pipeline detenido en fase 1'); return; }
-  await ingestarContratos({ offset });
+  await ingestarContratos({ offset, departamento: depto });
   if (shouldStop) { console.log('[VEEDOR] Pipeline detenido en fase 2'); return; }
   await descargarPliegos({ limite: limite_pliegos });
   if (shouldStop) { console.log('[VEEDOR] Pipeline detenido en fase 3'); return; }
@@ -596,23 +629,26 @@ app.get('/status', auth, (_req, res) => res.json({ ...state, ts: new Date().toIS
 
 app.post('/pipeline', auth, (req, res) => {
   if (state.running) return res.json({ ok: false, msg: 'Ya está corriendo' });
-  const { offset = 0, limite_pliegos = 50 } = req.body || {};
-  res.json({ ok: true, msg: 'Pipeline iniciado: procesos → contratos → pliegos → alertas' });
-  pipeline({ offset, limite_pliegos }).catch(console.error);
+  const { offset = 0, limite_pliegos = 50, departamento = null } = req.body || {};
+  const msg = departamento
+    ? `Pipeline iniciado para departamento: ${departamento}`
+    : 'Pipeline iniciado: procesos → contratos → pliegos → alertas';
+  res.json({ ok: true, msg });
+  pipeline({ offset, limite_pliegos, departamento }).catch(console.error);
 });
 
 app.post('/ingestar', auth, (req, res) => {
   if (state.running) return res.json({ ok: false, msg: 'Ya está corriendo' });
-  const { offset = 0 } = req.body || {};
-  res.json({ ok: true, msg: `Fase 1: ingesta de procesos offset=${offset}` });
-  ingestar({ offset }).catch(console.error);
+  const { offset = 0, departamento = null } = req.body || {};
+  res.json({ ok: true, msg: `Fase 1: ingesta de procesos offset=${offset}${departamento ? ` (depto: ${departamento})` : ''}` });
+  ingestar({ offset, departamento }).catch(console.error);
 });
 
 app.post('/contratos', auth, (req, res) => {
   if (state.running) return res.json({ ok: false, msg: 'Ya está corriendo' });
-  const { offset = 0 } = req.body || {};
-  res.json({ ok: true, msg: `Fase 2: ingesta de contratos offset=${offset}` });
-  ingestarContratos({ offset }).catch(console.error);
+  const { offset = 0, departamento = null } = req.body || {};
+  res.json({ ok: true, msg: `Fase 2: ingesta de contratos offset=${offset}${departamento ? ` (depto: ${departamento})` : ''}` });
+  ingestarContratos({ offset, departamento }).catch(console.error);
 });
 
 app.post('/pliegos', auth, (req, res) => {

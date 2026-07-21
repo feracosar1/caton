@@ -69,12 +69,18 @@ export async function buscarContratos(filtros = {}) {
   if (filtros.valorMax != null) w.push(`valor_del_contrato <= '${filtros.valorMax}'`);
   if (filtros.desde)          w.push(`fecha_de_firma >= '${iso(filtros.desde)}'`);
   if (filtros.hasta)          w.push(`fecha_de_firma <= '${iso(filtros.hasta)}'`);
-  if (filtros.estado)         w.push(`estado_contrato = '${esc(filtros.estado)}'`);
+  // Por defecto solo contratos en ejecución — el veedor audita lo que está pasando ahora.
+  // Pasar estado='todos' para ver el histórico completo.
+  if (filtros.estado && filtros.estado !== 'todos') {
+    w.push(`estado_contrato = '${esc(filtros.estado)}'`);
+  } else if (!filtros.estado) {
+    w.push(`estado_contrato = 'En ejecuci\u00f3n'`);
+  }
   if (filtros.tipo)           w.push(`upper(tipo_de_contrato) like '%${esc(filtros.tipo).toUpperCase()}%'`);
   if (filtros.modalidad)      w.push(`upper(modalidad_de_contratacion) like '%${esc(filtros.modalidad).toUpperCase()}%'`);
 
-  // Filtro de ruido: fuera cancelados y contratos en $0 (borradores/sin ejecución).
-  if (filtros.sinRuido) w.push(`estado_contrato != 'Cancelado'`, `valor_del_contrato > '0'`);
+  // Filtro de ruido: fuera contratos en $0 (borradores).
+  if (filtros.sinRuido) w.push(`valor_del_contrato > '0'`);
   // Solo empresas: fuera TODAS las cédulas (agresivo — también saca negocios que operan como persona natural).
   if (filtros.soloEmpresas) w.push(`tipodocproveedor = 'NIT'`);
   // Ocultar servicios personales (el ruido real): fuera prestación de servicios de
@@ -128,9 +134,13 @@ export async function resumenBusqueda(filtros = {}) {
   if (filtros.nitEntidad) w.push(`nit_entidad = '${esc(filtros.nitEntidad)}'`);
   if (filtros.desde)      w.push(`fecha_de_firma >= '${iso(filtros.desde)}'`);
   if (filtros.hasta)      w.push(`fecha_de_firma <= '${iso(filtros.hasta)}'`);
-  if (filtros.estado)     w.push(`estado_contrato = '${esc(filtros.estado)}'`);
+  if (filtros.estado && filtros.estado !== 'todos') {
+    w.push(`estado_contrato = '${esc(filtros.estado)}'`);
+  } else if (!filtros.estado) {
+    w.push(`estado_contrato = 'En ejecuci\u00f3n'`);
+  }
   if (filtros.valorMin != null) w.push(`valor_del_contrato >= '${filtros.valorMin}'`);
-  if (filtros.sinRuido) w.push(`estado_contrato != 'Cancelado'`, `valor_del_contrato > '0'`);
+  if (filtros.sinRuido) w.push(`valor_del_contrato > '0'`);
   if (filtros.soloEmpresas) w.push(`tipodocproveedor = 'NIT'`);
   if (filtros.sinServiciosPersonales) w.push(`not (upper(tipo_de_contrato) like 'PRESTACI%SERVICIOS' and tipodocproveedor != 'NIT')`);
   w.push(...clausulasSoQL(filtros.ambito));

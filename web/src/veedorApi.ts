@@ -13,22 +13,42 @@
 
 export const VEEDOR_URL = import.meta.env.VITE_VEEDOR_URL ?? '/api/veedor'
 
-// JWT de sesión de NUMA. El componente lo inyecta con setAuthToken(session.accessToken).
+// JWT de sesión (CATÓN o NUMA). El componente lo inyecta con setAuthToken(token).
 // En dev local cae al VITE_VEEDOR_SECRET si no hay sesión (el server lo acepta por túnel);
-// en prod ese secret NO existe en el bundle, así que solo vale el JWT del super admin.
+// en prod ese secret NO existe en el bundle, así que solo vale el JWT del usuario autenticado.
 let authToken = (import.meta.env.VITE_VEEDOR_SECRET as string | undefined) ?? ''
 export const setAuthToken = (t: string) => { authToken = t || ((import.meta.env.VITE_VEEDOR_SECRET as string | undefined) ?? '') }
+
+// Refresh CATÓN JWT: lee la fn del cliente para no crear dependencia circular.
+// Se llama solo cuando el server responde 401, una vez por petición.
+async function tryRefreshCatonToken(): Promise<boolean> {
+  try {
+    const { catonRefreshToken, catonToken } = await import('./catonClient.js')
+    const ok = await catonRefreshToken()
+    if (ok) authToken = catonToken()
+    return ok
+  } catch { return false }
+}
+
+async function doFetch(path: string, method: string, body: object | undefined, signal: AbortSignal) {
+  return fetch(`${VEEDOR_URL}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+    signal,
+  })
+}
 
 export async function veedorFetch<T = unknown>(path: string, method = 'GET', body?: object, timeoutMs = 15_000): Promise<T> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(new DOMException(`Timeout (${Math.round(timeoutMs / 1000)}s)`, 'AbortError')), timeoutMs)
   try {
-    const res = await fetch(`${VEEDOR_URL}${path}`, {
-      method,
-      headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: ctrl.signal,
-    })
+    let res = await doFetch(path, method, body, ctrl.signal)
+    // Si el token expiró, intentar refresh y reintentar una sola vez.
+    if (res.status === 401) {
+      const refreshed = await tryRefreshCatonToken()
+      if (refreshed) res = await doFetch(path, method, body, ctrl.signal)
+    }
     const data = await res.json()
     if (!res.ok || data?.ok === false) throw new Error(data?.error ?? `HTTP ${res.status}`)
     return data as T
