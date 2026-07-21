@@ -33,9 +33,11 @@ const supabase = createClient(
 );
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const SECRET    = process.env.VEEDOR_SECRET;
-const NUMA_URL  = process.env.NUMA_SUPABASE_URL || '';
-const NUMA_ANON = process.env.NUMA_ANON_KEY || '';
+const SECRET      = process.env.VEEDOR_SECRET;
+const NUMA_URL    = process.env.NUMA_SUPABASE_URL || '';
+const NUMA_ANON   = process.env.NUMA_ANON_KEY || '';
+const CATON_URL   = process.env.SUPABASE_URL || '';
+const CATON_ANON  = process.env.SUPABASE_ANON_KEY || '';
 const APP_TOKEN = process.env.SECOP_APP_TOKEN || '';
 const PORT      = Number(process.env.PORT) || 3002;
 const BATCH     = 1000;
@@ -541,18 +543,51 @@ async function auth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   if (SECRET && token === SECRET) return next();               // dev local (túnel)
-  if (!NUMA_URL || !NUMA_ANON) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    const r = await fetch(`${NUMA_URL}/rest/v1/rpc/is_super_admin`, {
-      method: 'POST',
-      headers: { apikey: NUMA_ANON, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    if (!r.ok) return res.status(401).json({ error: 'Unauthorized' });
-    const esAdmin = await r.json();
-    if (esAdmin === true) return next();
-    return res.status(403).json({ error: 'Forbidden — se requiere super admin de NUMA' });
-  } catch { return res.status(401).json({ error: 'Auth error' }); }
+
+  // Intento 1: JWT de CATÓN — is_caton_admin (admin o coordinador de veeduría)
+  if (CATON_URL && CATON_ANON) {
+    try {
+      const r = await fetch(`${CATON_URL}/rest/v1/rpc/is_caton_admin`, {
+        method: 'POST',
+        headers: { apikey: CATON_ANON, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (r.ok) {
+        const esAdmin = await r.json();
+        if (esAdmin === true) return next();
+      }
+    } catch { /* sigue al siguiente intento */ }
+  }
+
+  // Intento 2: JWT de NUMA — is_super_admin (acceso de operaciones internas)
+  if (NUMA_URL && NUMA_ANON) {
+    try {
+      const r = await fetch(`${NUMA_URL}/rest/v1/rpc/is_super_admin`, {
+        method: 'POST',
+        headers: { apikey: NUMA_ANON, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (r.ok) {
+        const esAdmin = await r.json();
+        if (esAdmin === true) return next();
+      }
+    } catch { /* sigue */ }
+  }
+
+  // Si ninguno pasó, verificar si el usuario de CATÓN tiene membresía activa (no solo admin)
+  if (CATON_URL && CATON_ANON) {
+    try {
+      const r = await fetch(`${CATON_URL}/auth/v1/user`, {
+        headers: { apikey: CATON_ANON, Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const u = await r.json();
+        if (u?.id) return next();  // cualquier usuario autenticado de CATÓN
+      }
+    } catch { /* sigue */ }
+  }
+
+  return res.status(401).json({ error: 'Unauthorized' });
 }
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
