@@ -411,7 +411,31 @@ ORDER BY t.vence;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 11. RLS — nadie entra por anon/authenticated. Solo el servidor (service_role).
+-- 11. PROSPECTOS / LEADS — contactos interesados en CATÓN
+--     Se crean desde la landing o manualmente desde el admin.
+--     Estado: nuevo → contactado → demo_agendada → cliente → descartado
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS caton_leads (
+  id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  nombre        text NOT NULL,
+  email         text NOT NULL,
+  cargo         text,
+  organizacion  text,
+  tipo_org      text CHECK (tipo_org IN ('veeduria','contraloria','auditoria','ong','academia','otro')),
+  telefono      text,
+  mensaje       text,
+  fuente        text DEFAULT 'landing' CHECK (fuente IN ('landing','manual','referido','evento')),
+  estado        text DEFAULT 'nuevo' CHECK (estado IN ('nuevo','contactado','demo_agendada','cliente','descartado')),
+  notas_internas text,
+  created_at    timestamptz DEFAULT now(),
+  updated_at    timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS caton_leads_estado_idx   ON caton_leads(estado);
+CREATE INDEX IF NOT EXISTS caton_leads_created_idx  ON caton_leads(created_at DESC);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 12. RLS — nadie entra por anon/authenticated. Solo el servidor (service_role).
 -- ─────────────────────────────────────────────────────────────────────────────
 ALTER TABLE veeduria_expedientes        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE veeduria_triaje             ENABLE ROW LEVEL SECURITY;
@@ -423,4 +447,5 @@ ALTER TABLE veeduria_contradicciones    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE veeduria_actuaciones        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE veeduria_terminos           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE festivos_co                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE caton_leads                 ENABLE ROW LEVEL SECURITY;
 -- Sin políticas = solo service_role (que bypasea RLS). Igual que schema.sql.

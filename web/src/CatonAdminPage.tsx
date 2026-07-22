@@ -16,9 +16,11 @@ import {
   CheckCircle2, XCircle, RefreshCw, Settings,
   Database, ToggleLeft, ToggleRight, ChevronDown,
   ChevronUp, Plus, Trash2, Shield, Globe, Mail,
+  UserCheck, ChevronRight,
 } from 'lucide-react'
 import type { CatonUser } from './useCatonAuth.js'
 import { catonRpc, catonGet, catonPost, catonPatch, CATON_URL, catonToken } from './catonClient.js'
+import { veedorFetch } from './veedorApi.js'
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
 const PANTALLA = '#0A241A'
@@ -94,7 +96,23 @@ interface OrgEntidadRow {
   entidad_sigla:  string | null
 }
 
-type Tab = 'usuarios' | 'orgs' | 'entidades' | 'invitar'
+type Tab = 'usuarios' | 'orgs' | 'entidades' | 'invitar' | 'leads'
+
+interface LeadRow {
+  id:             string
+  nombre:         string
+  email:          string
+  cargo:          string | null
+  organizacion:   string | null
+  tipo_org:       string | null
+  telefono:       string | null
+  mensaje:        string | null
+  fuente:         string
+  estado:         string
+  notas_internas: string | null
+  created_at:     string
+  updated_at:     string
+}
 
 const ROL_LABEL: Record<string, string> = {
   auditor:     'Auditor',
@@ -130,10 +148,11 @@ export function CatonAdminPage({ user }: Props) {
   const [tab, setTab] = useState<Tab>('usuarios')
 
   const tabs: [Tab, React.ReactNode, string][] = [
-    ['usuarios',  <Users size={15} />,    'Usuarios'],
-    ['orgs',      <Building2 size={15} />, 'Organizaciones'],
-    ['entidades', <Database size={15} />,  'Entidades'],
-    ['invitar',   <UserPlus size={15} />,  'Invitar'],
+    ['usuarios',  <Users size={15} />,      'Usuarios'],
+    ['orgs',      <Building2 size={15} />,  'Organizaciones'],
+    ['entidades', <Database size={15} />,   'Entidades'],
+    ['invitar',   <UserPlus size={15} />,   'Invitar'],
+    ['leads',     <UserCheck size={15} />,  'Prospectos'],
   ]
 
   return (
@@ -175,6 +194,7 @@ export function CatonAdminPage({ user }: Props) {
       {tab === 'orgs'      && <TabOrgs />}
       {tab === 'entidades' && <TabEntidades />}
       {tab === 'invitar'   && <TabInvitar user={user} />}
+      {tab === 'leads'     && <TabLeads />}
     </div>
   )
 }
@@ -1150,6 +1170,396 @@ function TabInvitar({ user: _user }: { user: CatonUser }) {
         <strong style={{ color: TINTA }}>¿Cómo funciona?</strong> El usuario recibe un enlace mágico.
         Al hacer clic queda autenticado con el rol asignado. Las cuentas no pueden crearse públicamente — solo desde este panel.
       </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Tab Prospectos / Leads
+// ══════════════════════════════════════════════════════════════════════════════
+
+const ESTADO_LEAD: Record<string, { label: string; color: string; bg: string }> = {
+  nuevo:          { label: 'Nuevo',          color: SELLO,    bg: `${SELLO}18` },
+  contactado:     { label: 'Contactado',     color: TINTA,    bg: `${TINTA}12` },
+  demo_agendada:  { label: 'Demo agendada',  color: OK,       bg: `${OK}15` },
+  cliente:        { label: 'Cliente ✓',      color: OK,       bg: `${OK}25` },
+  descartado:     { label: 'Descartado',     color: INK35,    bg: INK06 },
+}
+
+const TIPO_LEAD: Record<string, string> = {
+  veeduria:    'Veeduría',
+  contraloria: 'Contraloría',
+  auditoria:   'Auditoría',
+  ong:         'ONG',
+  academia:    'Academia',
+  otro:        'Otro',
+}
+
+function TabLeads() {
+  const [leads, setLeads]         = useState<LeadRow[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState('')
+  const [filtroEstado, setFiltro] = useState('todos')
+  const [busqueda, setBusqueda]   = useState('')
+  const [showForm, setShowForm]   = useState(false)
+  const [expanded, setExpanded]   = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('')
+    try {
+      const params = new URLSearchParams()
+      if (filtroEstado !== 'todos') params.set('estado', filtroEstado)
+      if (busqueda.trim()) params.set('q', busqueda.trim())
+      const rows = await veedorFetch<{ leads: LeadRow[] }>(`/veeduria/leads?${params}`)
+      setLeads(rows.leads ?? [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error')
+    } finally { setLoading(false) }
+  }, [filtroEstado, busqueda])
+
+  useEffect(() => { void load() }, [load])
+
+  async function actualizarEstado(id: string, estado: string) {
+    try {
+      const data = await veedorFetch<{ lead?: LeadRow }>(`/veeduria/leads/${id}`, 'PATCH', { estado })
+      if (data.lead) setLeads(prev => prev.map(l => l.id === id ? data.lead! : l))
+    } catch (e) { alert(e instanceof Error ? e.message : 'Error') }
+  }
+
+  async function guardarNotas(id: string, notas_internas: string) {
+    try {
+      await veedorFetch(`/veeduria/leads/${id}`, 'PATCH', { notas_internas })
+    } catch { /* silencioso */ }
+  }
+
+  const contadores = leads.reduce((acc, l) => {
+    acc[l.estado] = (acc[l.estado] ?? 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  if (loading) return <LoadingState label="Cargando prospectos…" />
+  if (error)   return <ErrorState msg={error} onRetry={load} />
+
+  return (
+    <div>
+      {/* KPIs rápidos */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+        {Object.entries(ESTADO_LEAD).map(([key, cfg]) => (
+          <div
+            key={key}
+            onClick={() => setFiltro(filtroEstado === key ? 'todos' : key)}
+            style={{
+              padding: '8px 16px', borderRadius: 20, cursor: 'pointer',
+              background: filtroEstado === key ? cfg.color : cfg.bg,
+              color: filtroEstado === key ? WHITE : cfg.color,
+              fontSize: 12, fontWeight: 700, transition: 'all 0.12s',
+              border: `1px solid ${cfg.color}40`,
+            }}
+          >
+            {cfg.label} {contadores[key] != null ? `(${contadores[key]})` : ''}
+          </div>
+        ))}
+        {filtroEstado !== 'todos' && (
+          <div
+            onClick={() => setFiltro('todos')}
+            style={{ padding: '8px 16px', borderRadius: 20, cursor: 'pointer', background: INK06, color: INK55, fontSize: 12 }}
+          >
+            × Todos
+          </div>
+        )}
+      </div>
+
+      {/* Barra de acciones */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+        <input
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && void load()}
+          placeholder="Buscar por nombre, email u organización…"
+          style={{ ...inputStyle, maxWidth: 320 }}
+        />
+        <button onClick={() => void load()} style={btnSecondaryStyle}><RefreshCw size={14} /> Buscar</button>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 12, color: INK35 }}>{leads.length} registro{leads.length !== 1 ? 's' : ''}</span>
+        <button onClick={() => setShowForm(f => !f)} style={btnPrimaryStyle}><Plus size={14} /> Nuevo prospecto</button>
+      </div>
+
+      {/* Formulario manual */}
+      {showForm && (
+        <FormNuevoLead
+          onCreated={lead => { setLeads(prev => [lead, ...prev]); setShowForm(false) }}
+          onCancel={() => setShowForm(false)}
+        />
+      )}
+
+      {/* Tabla */}
+      {leads.length === 0 ? (
+        <div style={{
+          textAlign: 'center', padding: '48px 0', color: INK35,
+          background: WHITE, borderRadius: 12, border: `1px solid ${INK12}`,
+        }}>
+          <UserCheck size={32} color={INK12} style={{ marginBottom: 12 }} />
+          <p style={{ fontSize: 14, margin: 0 }}>Sin prospectos aún.</p>
+          <p style={{ fontSize: 12, margin: '4px 0 0' }}>
+            Agrégalos manualmente o comparte el formulario de contacto de la landing.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {leads.map(lead => (
+            <LeadCard
+              key={lead.id}
+              lead={lead}
+              isExpanded={expanded === lead.id}
+              onToggle={() => setExpanded(expanded === lead.id ? null : lead.id)}
+              onEstado={actualizarEstado}
+              onGuardarNotas={guardarNotas}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function LeadCard({ lead, isExpanded, onToggle, onEstado, onGuardarNotas }: {
+  lead:            LeadRow
+  isExpanded:      boolean
+  onToggle:        () => void
+  onEstado:        (id: string, estado: string) => void
+  onGuardarNotas:  (id: string, notas: string) => void
+}) {
+  const [notas, setNotas]   = useState(lead.notas_internas ?? '')
+  const [saved, setSaved]   = useState(false)
+  const cfg = ESTADO_LEAD[lead.estado] ?? ESTADO_LEAD.nuevo
+
+  async function saveNotas() {
+    await onGuardarNotas(lead.id, notas)
+    setSaved(true); setTimeout(() => setSaved(false), 2000)
+  }
+
+  return (
+    <div style={{
+      background: WHITE, border: `1px solid ${INK12}`, borderRadius: 10,
+      overflow: 'hidden',
+    }}>
+      {/* Fila resumen */}
+      <div
+        onClick={onToggle}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+          cursor: 'pointer', transition: 'background 0.1s',
+        }}
+      >
+        {/* Estado badge */}
+        <span style={{
+          fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
+          background: cfg.bg, color: cfg.color, whiteSpace: 'nowrap',
+          minWidth: 90, textAlign: 'center',
+        }}>
+          {cfg.label}
+        </span>
+
+        {/* Nombre + org */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 700, color: TINTA, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+            {lead.nombre}
+          </div>
+          {lead.organizacion && (
+            <div style={{ fontSize: 11.5, color: INK55 }}>
+              {lead.organizacion}
+              {lead.tipo_org && ` · ${TIPO_LEAD[lead.tipo_org] ?? lead.tipo_org}`}
+            </div>
+          )}
+        </div>
+
+        {/* Email */}
+        <a
+          href={`mailto:${lead.email}`}
+          onClick={e => e.stopPropagation()}
+          style={{ fontSize: 12.5, color: SELLO, textDecoration: 'none', whiteSpace: 'nowrap' }}
+        >
+          {lead.email}
+        </a>
+
+        {/* Fuente */}
+        <span style={{ fontSize: 11, color: INK35, whiteSpace: 'nowrap' }}>
+          {lead.fuente === 'manual' ? '✏️ manual' : '🌐 landing'}
+        </span>
+
+        {/* Fecha */}
+        <span style={{ fontSize: 11, color: INK35, whiteSpace: 'nowrap' }}>
+          {new Date(lead.created_at).toLocaleDateString('es-CO')}
+        </span>
+
+        <ChevronRight
+          size={16} color={INK35}
+          style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}
+        />
+      </div>
+
+      {/* Panel expandible */}
+      {isExpanded && (
+        <div style={{ borderTop: `1px solid ${INK06}`, padding: '16px 20px', background: `${SELLO}04` }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+
+            {/* Datos de contacto */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: INK55, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+                Datos
+              </div>
+              <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {lead.cargo && <DRow label="Cargo" value={lead.cargo} />}
+                {lead.telefono && <DRow label="Teléfono" value={lead.telefono} />}
+                {lead.mensaje && <DRow label="Mensaje" value={lead.mensaje} />}
+              </dl>
+
+              {/* Cambiar estado */}
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: INK55, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                  Estado
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {Object.entries(ESTADO_LEAD).map(([key, c]) => (
+                    <button
+                      key={key}
+                      onClick={() => onEstado(lead.id, key)}
+                      style={{
+                        padding: '5px 12px', borderRadius: 16, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', border: 'none',
+                        background: lead.estado === key ? c.color : c.bg,
+                        color: lead.estado === key ? WHITE : c.color,
+                        opacity: lead.estado === key ? 1 : 0.8,
+                      }}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Notas internas */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: INK55, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                Notas internas
+              </div>
+              <textarea
+                value={notas}
+                onChange={e => { setNotas(e.target.value); setSaved(false) }}
+                rows={5}
+                placeholder="Contexto de la llamada, próximos pasos, observaciones…"
+                style={{
+                  ...inputStyle, resize: 'vertical', fontFamily: 'inherit',
+                  fontSize: 13, lineHeight: 1.5,
+                }}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+                <button onClick={() => void saveNotas()} style={btnPrimaryStyle}>
+                  <CheckCircle2 size={13} /> Guardar notas
+                </button>
+                {saved && <span style={{ fontSize: 12, color: OK, fontWeight: 600 }}>Guardado ✓</span>}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, fontSize: 13 }}>
+      <dt style={{ color: INK55, minWidth: 80, fontWeight: 600 }}>{label}</dt>
+      <dd style={{ margin: 0, color: TINTA }}>{value}</dd>
+    </div>
+  )
+}
+
+function FormNuevoLead({ onCreated, onCancel }: { onCreated: (l: LeadRow) => void; onCancel: () => void }) {
+  const [nombre,       setNombre]       = useState('')
+  const [email,        setEmail]        = useState('')
+  const [cargo,        setCargo]        = useState('')
+  const [organizacion, setOrganizacion] = useState('')
+  const [tipo_org,     setTipoOrg]      = useState('veeduria')
+  const [telefono,     setTelefono]     = useState('')
+  const [mensaje,      setMensaje]      = useState('')
+  const [notas,        setNotas]        = useState('')
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState('')
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setLoading(true); setError('')
+    try {
+      const data = await veedorFetch<{ lead?: LeadRow; error?: string }>('/veeduria/leads', 'POST', {
+        nombre: nombre.trim(), email: email.trim(),
+        cargo: cargo.trim() || null, organizacion: organizacion.trim() || null,
+        tipo_org, telefono: telefono.trim() || null,
+        mensaje: mensaje.trim() || null, notas_internas: notas.trim() || null,
+      })
+      if (!data.lead) throw new Error(data.error ?? 'Error guardando')
+      onCreated(data.lead)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error')
+    } finally { setLoading(false) }
+  }
+
+  return (
+    <div style={{ background: WHITE, borderRadius: 12, border: `1px solid ${INK12}`, padding: '24px 28px', marginBottom: 16 }}>
+      <h3 style={{ fontSize: 15, fontWeight: 800, color: TINTA, margin: '0 0 18px' }}>Nuevo prospecto</h3>
+      {error && <div style={{ ...errorStyle, marginBottom: 14 }}>{error}</div>}
+      <form onSubmit={e => void handleSubmit(e)}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 14 }}>
+          <div>
+            <label style={labelStyle}>Nombre *</label>
+            <input required value={nombre} onChange={e => setNombre(e.target.value)} placeholder="María García" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Email *</label>
+            <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="mgarcia@contraloria.gov.co" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Teléfono</label>
+            <input value={telefono} onChange={e => setTelefono(e.target.value)} placeholder="+57 300 000 0000" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Cargo</label>
+            <input value={cargo} onChange={e => setCargo(e.target.value)} placeholder="Contralor departamental" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Organización</label>
+            <input value={organizacion} onChange={e => setOrganizacion(e.target.value)} placeholder="Contraloría de Córdoba" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Tipo de organización</label>
+            <select value={tipo_org} onChange={e => setTipoOrg(e.target.value)} style={inputStyle}>
+              <option value="veeduria">Veeduría</option>
+              <option value="contraloria">Contraloría</option>
+              <option value="auditoria">Auditoría General</option>
+              <option value="ong">ONG</option>
+              <option value="academia">Academia</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
+          <div>
+            <label style={labelStyle}>Mensaje / contexto</label>
+            <textarea value={mensaje} onChange={e => setMensaje(e.target.value)} rows={3} placeholder="¿Qué les interesa de CATÓN?" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+          <div>
+            <label style={labelStyle}>Notas internas</label>
+            <textarea value={notas} onChange={e => setNotas(e.target.value)} rows={3} placeholder="Cómo llegó, próximos pasos…" style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" onClick={onCancel} style={btnSecondaryStyle}>Cancelar</button>
+          <button type="submit" disabled={loading} style={btnPrimaryStyle}>
+            {loading ? <><Loader2 size={14} className="animate-spin" /> Guardando…</> : <><UserCheck size={14} /> Agregar prospecto</>}
+          </button>
+        </div>
+      </form>
     </div>
   )
 }

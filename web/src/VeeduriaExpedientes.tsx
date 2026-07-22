@@ -823,6 +823,23 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
   soloEmpresas: boolean; setSoloEmpresas: (b: boolean) => void
   sinServPers: boolean; setSinServPers: (b: boolean) => void
 }) {
+  const [showAsync, setShowAsync]     = useState(false)
+  const [emailAsync, setEmailAsync]   = useState('')
+  const [enviandoAsync, setEnviando]  = useState(false)
+  const [asyncOk, setAsyncOk]         = useState('')
+
+  const lanzarAsync = async () => {
+    if (!emailAsync.trim()) return
+    setEnviando(true); setAsyncOk('')
+    try {
+      const f = { ...filtros, sinRuido: sinRuido || undefined, soloEmpresas: soloEmpresas || undefined, sinServiciosPersonales: sinServPers || undefined }
+      const r = await api.buscarAsync(f, emailAsync.trim())
+      setAsyncOk(`Búsqueda en curso (job ${r.job_id?.slice(0, 8)}…). Te avisamos a ${emailAsync.trim()} cuando termine.`)
+      setEmailAsync('')
+    } catch (e) { setAsyncOk(`Error: ${e.message}`) }
+    finally { setEnviando(false) }
+  }
+
   const campo = (k: keyof api.FiltrosBusqueda, label: string, type = 'text', ph = '') => (
     <div>
       <label style={lbl}>{label}</label>
@@ -868,6 +885,9 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
         </div>
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${INK12}`, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
           <Btn onClick={buscar} disabled={buscando}>{buscando ? <Loader size={14} className="spin" /> : <Search size={14} />} Buscar</Btn>
+          <Btn tone='ghost' onClick={() => { setShowAsync(v => !v); setAsyncOk('') }} title="Escanea TODO SECOP con estos filtros en background y te avisa por correo">
+            <Mail size={14} /> Escanear todo SECOP
+          </Btn>
           <div style={{ width: 1, height: 18, background: INK12 }} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: INK55, cursor: 'pointer' }}>
             <input type="checkbox" checked={sinRuido} onChange={e => setSinRuido(e.target.checked)} style={{ accentColor: OK, cursor: 'pointer' }} />
@@ -882,6 +902,36 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
             Solo empresas
           </label>
         </div>
+
+        {/* Panel escaneo async */}
+        {showAsync && (
+          <div style={{ marginTop: 12, padding: '14px 16px', background: '#F0F5F2', borderRadius: 8, border: `1px solid ${INK12}` }}>
+            <p style={{ margin: '0 0 10px', fontSize: 13, color: '#0F3D2E', fontWeight: 600 }}>
+              Escanear todo el universo SECOP con estos filtros
+            </p>
+            <p style={{ margin: '0 0 10px', fontSize: 12, color: INK55 }}>
+              El servidor pagina Socrata completo (hasta 10.000 contratos). Cuando termine te llegará un correo para que entres a revisar.
+            </p>
+            {asyncOk
+              ? <p style={{ margin: 0, fontSize: 13, color: OK, fontWeight: 500 }}>{asyncOk}</p>
+              : (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <input
+                    style={{ ...inp, minWidth: 220, flex: 1 }}
+                    type="email"
+                    placeholder="tu@correo.com"
+                    value={emailAsync}
+                    onChange={e => setEmailAsync(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') lanzarAsync() }}
+                  />
+                  <Btn onClick={lanzarAsync} disabled={enviandoAsync || !emailAsync.trim()}>
+                    {enviandoAsync ? <Loader size={13} className="spin" /> : <Send size={13} />} Iniciar escaneo
+                  </Btn>
+                </div>
+              )
+            }
+          </div>
+        )}
       </div>
 
       {/* Barra de resultados */}

@@ -139,23 +139,16 @@ export function montarVeeduria(app, { auth, supabase }) {
   };
 
   // ── BÚSQUEDA (paso 3) ──
-  // Prioridad: DB local (ingesta ya procesada, < 1s). Si hay datos → los devuelve.
-  // Si la DB local está vacía para esa búsqueda → cae a Socrata (puede dar timeout
-  // en prod via Netlify proxy de 26s, pero solo para búsquedas sin datos locales).
+  // Siempre va a Socrata (datos.gov.co) — la búsqueda interactiva cubre TODO SECOP.
+  // La tabla local secop_contratos es para el radar de patrones, no para búsquedas.
   app.get('/veeduria/buscar', auth, async (req, res) => {
     try {
-      const local = await buscarLocal(supabase, req.query);
-      if (local.length > 0) return ok(res, { contratos: local, fuente: 'local' });
-      // Fallback a Socrata solo si no hay datos locales
       const contratos = await buscarContratos({ ...req.query, ambito: parseAmbito(req) });
       ok(res, { contratos, fuente: 'secop' });
     } catch (e) { err(res, e); }
   });
   app.get('/veeduria/resumen', auth, async (req, res) => {
     try {
-      // Primero desde DB local (<1s). Solo cae a Socrata si la tabla está vacía.
-      const local = await resumenLocal(supabase, req.query);
-      if (local.contratos > 0) return ok(res, local);
       ok(res, await resumenBusqueda({ ...req.query, ambito: parseAmbito(req) }));
     } catch (e) { err(res, e); }
   });
@@ -903,5 +896,317 @@ export function montarVeeduria(app, { auth, supabase }) {
     } catch (e) { err(res, e); }
   });
 
-  console.log('[VEEDOR] endpoints de veeduría montados: /veeduria/{buscar,grafo,auditar,expedientes,denuncia,enviar,requerimientos,notas,tutela,analizar-respuesta,fallo,cerrar,cronograma,config/smtp}');
+  // ── POST /veeduria/contacto — lead desde landing o externo (SIN auth) ────────
+  app.post('/veeduria/contacto', async (req, res) => {
+    const { nombre, email, cargo, organizacion, tipo_org, telefono, mensaje, fuente = 'landing' } = req.body ?? {};
+    if (!nombre || !email) return err(res, new Error('nombre y email son requeridos'));
+
+    // Validación básica de email
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return err(res, new Error('email inválido'));
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('caton_leads')
+        .insert({
+          nombre:       String(nombre).slice(0, 120),
+          email:        String(email).slice(0, 200).toLowerCase().trim(),
+          cargo:        cargo  ? String(cargo).slice(0, 100)  : null,
+          organizacion: organizacion ? String(organizacion).slice(0, 200) : null,
+          tipo_org:     ['veeduria','contraloria','auditoria','ong','academia','otro'].includes(tipo_org) ? tipo_org : 'otro',
+          telefono:     telefono ? String(telefono).slice(0, 30) : null,
+          mensaje:      mensaje  ? String(mensaje).slice(0, 1000) : null,
+          fuente:       ['landing','manual','referido','evento'].includes(fuente) ? fuente : 'landing',
+          estado:       'nuevo',
+        })
+        .select('id, created_at')
+        .single();
+
+      if (error) throw new Error(error.message);
+      console.log(`[CATON] Nuevo lead: ${email} (${organizacion ?? 'sin org'})`);
+      ok(res, { ok: true, id: data?.id });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── GET /veeduria/leads — lista de prospectos (auth requerida) ─────────────
+  app.get('/veeduria/leads', auth, async (req, res) => {
+    const { estado, q } = req.query;
+    try {
+      let query = supabase
+        .from('caton_leads')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (estado && estado !== 'todos') query = query.eq('estado', estado);
+      if (q) {
+        const like = `%${q}%`;
+        query = query.or(`nombre.ilike.${like},email.ilike.${like},organizacion.ilike.${like}`);
+      }
+
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      ok(res, { leads: data ?? [] });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── PATCH /veeduria/leads/:id — actualizar estado o notas ─────────────────
+  app.patch('/veeduria/leads/:id', auth, async (req, res) => {
+    const allowed = ['estado', 'notas_internas', 'cargo', 'organizacion', 'tipo_org', 'telefono'];
+    const updates = { updated_at: new Date().toISOString() };
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    try {
+      const { data, error } = await supabase
+        .from('caton_leads')
+        .update(updates)
+        .eq('id', req.params.id)
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, { lead: data });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── POST /veeduria/leads — crear lead manualmente desde el admin ───────────
+  app.post('/veeduria/leads', auth, async (req, res) => {
+    const { nombre, email, cargo, organizacion, tipo_org, telefono, mensaje, notas_internas } = req.body ?? {};
+    if (!nombre || !email) return err(res, new Error('nombre y email son requeridos'));
+    try {
+      const { data, error } = await supabase
+        .from('caton_leads')
+        .insert({
+          nombre:         String(nombre).slice(0, 120),
+          email:          String(email).slice(0, 200).toLowerCase().trim(),
+          cargo:          cargo  ? String(cargo).slice(0, 100)  : null,
+          organizacion:   organizacion ? String(organizacion).slice(0, 200) : null,
+          tipo_org:       ['veeduria','contraloria','auditoria','ong','academia','otro'].includes(tipo_org) ? tipo_org : 'otro',
+          telefono:       telefono ? String(telefono).slice(0, 30) : null,
+          mensaje:        mensaje  ? String(mensaje).slice(0, 1000) : null,
+          notas_internas: notas_internas ? String(notas_internas).slice(0, 2000) : null,
+          fuente:         'manual',
+          estado:         'nuevo',
+        })
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, { lead: data });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── POST /veeduria/buscar-async — escanea TODO el universo SECOP en background
+  // Body: { email_destino, ...mismos filtros que /buscar }
+  // Responde inmediatamente con { job_id }. El job pagina Socrata ($limit=1000)
+  // hasta agotar resultados (max 10.000). Al terminar envía un email de notificación
+  // simple ("ya está listo, entra a revisar") — sin tabla de contratos en el correo.
+  //
+  // REQUIERE tabla en el Supabase de CATÓN — ver schema-async-search.sql
+  app.post('/veeduria/buscar-async', auth, async (req, res) => {
+    const { email_destino, ...filtros } = req.body ?? {};
+    if (!email_destino) return err(res, new Error('email_destino requerido'));
+
+    // Crear registro del job
+    const { data: job, error: jobErr } = await supabase
+      .from('veedor_busquedas_async')
+      .insert({ filtros, email_destino, estado: 'corriendo' })
+      .select('id').single();
+    if (jobErr) return err(res, new Error(`No se pudo crear el job: ${jobErr.message}`));
+
+    ok(res, { job_id: job.id, mensaje: 'Búsqueda en curso. Te notificamos por correo cuando termine.' });
+
+    // Background — fire and forget (no bloquea la respuesta ya enviada)
+    (async () => {
+      const LIMIT  = 1000;
+      const MAX    = 10_000;  // tope de seguridad
+      let   offset = 0;
+      const todos  = [];
+
+      try {
+        const { clausulasSoQL } = await import('./ambito.mjs');
+        const { scorearContrato } = await import('./score-contrato.mjs');
+        const httpsModule = (await import('https')).default;
+
+        const escF = (s) => String(s).replace(/'/g, "''");
+        const isoF = (d) => `${d}T00:00:00.000`;
+
+        // Rearmar cláusulas WHERE — espejo de buscarContratos()
+        const w = [];
+        if (filtros.entidad)        w.push(`upper(nombre_entidad) like '%${escF(filtros.entidad).toUpperCase()}%'`);
+        if (filtros.nitEntidad)     w.push(`nit_entidad = '${escF(filtros.nitEntidad)}'`);
+        if (filtros.contratista)    w.push(`upper(proveedor_adjudicado) like '%${escF(filtros.contratista).toUpperCase()}%'`);
+        if (filtros.nitContratista) w.push(`documento_proveedor = '${escF(filtros.nitContratista)}'`);
+        if (filtros.objeto)         w.push(`upper(objeto_del_contrato) like '%${escF(filtros.objeto).toUpperCase()}%'`);
+        if (filtros.valorMin != null) w.push(`valor_del_contrato >= '${filtros.valorMin}'`);
+        if (filtros.valorMax != null) w.push(`valor_del_contrato <= '${filtros.valorMax}'`);
+        if (filtros.desde)          w.push(`fecha_de_firma >= '${isoF(filtros.desde)}'`);
+        if (filtros.hasta)          w.push(`fecha_de_firma <= '${isoF(filtros.hasta)}'`);
+        if (filtros.estado && filtros.estado !== 'todos') {
+          w.push(`estado_contrato = '${escF(filtros.estado)}'`);
+        } else if (!filtros.estado) {
+          w.push(`estado_contrato = 'En ejecuci\u00f3n'`);
+        }
+        if (filtros.tipo)      w.push(`upper(tipo_de_contrato) like '%${escF(filtros.tipo).toUpperCase()}%'`);
+        if (filtros.modalidad) w.push(`upper(modalidad_de_contratacion) like '%${escF(filtros.modalidad).toUpperCase()}%'`);
+        if (filtros.sinRuido)  w.push(`valor_del_contrato > '0'`);
+        if (filtros.soloEmpresas) w.push(`tipodocproveedor = 'NIT'`);
+        if (filtros.sinServiciosPersonales) {
+          w.push(`not (upper(tipo_de_contrato) like 'PRESTACI%SERVICIOS' and tipodocproveedor != 'NIT')`);
+        }
+        w.push(...clausulasSoQL(filtros.ambito));
+
+        // Función que trae UNA página de Socrata
+        const socrataPage = (off) => new Promise((resolve, reject) => {
+          const params = new URLSearchParams({
+            $select: 'id_contrato,referencia_del_contrato,proceso_de_compra,nombre_entidad,nit_entidad,'
+                   + 'proveedor_adjudicado,documento_proveedor,nombre_representante_legal,'
+                   + 'valor_del_contrato,fecha_de_firma,estado_contrato,tipo_de_contrato,'
+                   + 'modalidad_de_contratacion,objeto_del_contrato,departamento,ciudad,orden,sector,tipodocproveedor',
+            $order:  'fecha_de_firma DESC',
+            $limit:  String(LIMIT),
+            $offset: String(off),
+          });
+          if (w.length) params.set('$where', w.join(' AND '));
+          if (process.env.SOCRATA_APP_TOKEN) params.set('$$app_token', process.env.SOCRATA_APP_TOKEN);
+
+          const r = httpsModule.get(
+            { hostname: 'www.datos.gov.co', path: `/resource/jbjy-vk9h.json?${params}`, headers: { Accept: 'application/json' } },
+            (resp) => {
+              const chunks = [];
+              resp.on('data', d => chunks.push(d));
+              resp.on('end', () => {
+                try {
+                  const data = JSON.parse(Buffer.concat(chunks).toString());
+                  if (!Array.isArray(data)) return reject(new Error(data?.message ?? 'respuesta no iterable'));
+                  resolve(data);
+                } catch (e) { reject(e); }
+              });
+            });
+          r.on('error', reject);
+          r.setTimeout(60_000, () => { r.destroy(); reject(new Error('timeout Socrata')); });
+        });
+
+        // Loop de paginación
+        while (offset < MAX) {
+          const rows = await socrataPage(offset);
+          for (const r of rows) {
+            const c = {
+              id_contrato: r.id_contrato, referencia: r.referencia_del_contrato,
+              proceso: r.proceso_de_compra, entidad: r.nombre_entidad, nit_entidad: r.nit_entidad,
+              contratista: r.proveedor_adjudicado, nit_contratista: r.documento_proveedor,
+              representante_legal: r.nombre_representante_legal,
+              valor: Number(r.valor_del_contrato) || 0,
+              fecha_firma: r.fecha_de_firma?.slice(0, 10),
+              estado: r.estado_contrato, tipo: r.tipo_de_contrato,
+              modalidad: r.modalidad_de_contratacion,
+              objeto: (r.objeto_del_contrato ?? '').slice(0, 180),
+              departamento: r.departamento, ciudad: r.ciudad,
+            };
+            todos.push({ ...c, ...scorearContrato(c) });
+          }
+          console.log(`[ASYNC] job ${job.id}: offset=${offset}, batch=${rows.length}, acumulado=${todos.length}`);
+          if (rows.length < LIMIT) break; // última página — fin
+          offset += LIMIT;
+        }
+
+        // Actualizar job como completado
+        await supabase.from('veedor_busquedas_async').update({
+          estado:          'completada',
+          total_contratos: todos.length,
+          top_score:       todos.length ? Math.max(...todos.slice(0, 200).map(c => c.score ?? 0)) : 0,
+          completado_at:   new Date().toISOString(),
+        }).eq('id', job.id);
+
+        // Email de notificación — simple, sin tabla de contratos
+        const filtrosDesc = [
+          filtros.entidad      && `entidad: "${filtros.entidad}"`,
+          filtros.objeto       && `objeto: "${filtros.objeto}"`,
+          filtros.contratista  && `contratista: "${filtros.contratista}"`,
+          filtros.nitEntidad   && `NIT entidad: ${filtros.nitEntidad}`,
+          filtros.desde        && `desde ${filtros.desde}`,
+          filtros.hasta        && `hasta ${filtros.hasta}`,
+        ].filter(Boolean).join(' · ') || 'todos los contratos en ejecución';
+
+        const appUrl   = (process.env.APP_URL ?? 'https://caton.la').replace(/\/+$/, '');
+        const fromAddr = process.env.RESEND_FROM || 'Catón <veedor@numa.la>';
+
+        await sendViaResend({
+          from:    fromAddr,
+          to:      email_destino,
+          subject: `✅ Búsqueda SECOP lista — ${todos.length.toLocaleString('es-CO')} contratos encontrados`,
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:580px;margin:0 auto;padding:24px">
+              <div style="background:#0F3D2E;padding:20px 24px;border-radius:8px 8px 0 0">
+                <h1 style="color:#fff;margin:0;font-size:20px">Catón — Veeduría Ciudadana</h1>
+              </div>
+              <div style="background:#f9f9f7;padding:28px 24px;border-radius:0 0 8px 8px;border:1px solid #e0ddd5;border-top:none">
+                <h2 style="color:#0F3D2E;margin-top:0">El escaneo de SECOP terminó</h2>
+                <p style="color:#444;font-size:15px;margin:0 0 16px">
+                  Escaneamos el universo completo de contratos con los filtros que usaste.
+                </p>
+                <div style="background:#fff;border:1px solid #e0ddd5;border-radius:6px;padding:14px 16px;margin-bottom:16px">
+                  <p style="margin:0;color:#777;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Filtros aplicados</p>
+                  <p style="margin:4px 0 0;color:#0F3D2E;font-size:14px;font-weight:600">${filtrosDesc}</p>
+                </div>
+                <div style="background:#0F3D2E;border-radius:6px;padding:20px;margin-bottom:24px;text-align:center">
+                  <span style="color:#C6A15B;font-size:36px;font-weight:700;display:block">${todos.length.toLocaleString('es-CO')}</span>
+                  <span style="color:#E4EDE9;font-size:13px">contratos encontrados</span>
+                </div>
+                <div style="text-align:center;margin-bottom:20px">
+                  <a href="${appUrl}" style="display:inline-block;background:#0F3D2E;color:#fff;padding:13px 32px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:600">
+                    Entrar a Catón a revisar →
+                  </a>
+                </div>
+                <p style="color:#999;font-size:12px;margin:0;text-align:center">
+                  Los resultados están ordenados por score de riesgo — los más sospechosos primero.
+                </p>
+              </div>
+            </div>
+          `,
+          replyTo: 'veedor@numa.la',
+        });
+
+        console.log(`[ASYNC] job ${job.id} DONE: ${todos.length} contratos → notificación enviada a ${email_destino}`);
+
+      } catch (e) {
+        console.error(`[ASYNC] job ${job.id} ERROR:`, e.message);
+        await supabase.from('veedor_busquedas_async').update({
+          estado:        'error',
+          error_msg:     e.message,
+          completado_at: new Date().toISOString(),
+        }).eq('id', job.id).catch(() => {});
+
+        // Email de error también
+        const appUrl   = (process.env.APP_URL ?? 'https://caton.la').replace(/\/+$/, '');
+        const fromAddr = process.env.RESEND_FROM || 'Catón <veedor@numa.la>';
+        await sendViaResend({
+          from:    fromAddr,
+          to:      email_destino,
+          subject: '⚠️ Error en tu búsqueda SECOP — Catón',
+          html: `<div style="font-family:Arial,sans-serif;padding:24px">
+                   <p>Hubo un error procesando tu búsqueda. Por favor intenta de nuevo.</p>
+                   <p style="color:#888;font-size:12px">Detalle técnico: ${e.message}</p>
+                   <p><a href="${appUrl}" style="color:#0F3D2E">Volver a Catón</a></p>
+                 </div>`,
+          replyTo: 'veedor@numa.la',
+        }).catch(() => {});
+      }
+    })();
+  });
+
+  // ── GET /veeduria/buscar-async/:id — estado del job ──────────────────────
+  app.get('/veeduria/buscar-async/:id', auth, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('veedor_busquedas_async')
+        .select('id,estado,total_contratos,top_score,error_msg,created_at,completado_at')
+        .eq('id', req.params.id)
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, { job: data });
+    } catch (e) { err(res, e); }
+  });
+
+  console.log('[VEEDOR] endpoints de veeduría montados: /veeduria/{buscar,buscar-async,grafo,auditar,expedientes,denuncia,enviar,requerimientos,notas,tutela,analizar-respuesta,fallo,cerrar,cronograma,config/smtp,contacto,leads}');
 }
