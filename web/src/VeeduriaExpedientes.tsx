@@ -418,12 +418,16 @@ export function VeeduriaExpedientes({
   }, [orgId, smtpForm])
 
   const enviarDenunciaHandler = useCallback(async (opts: {
-    destinatario_email: string; destinatario_nombre: string; contenido_html?: string
+    destinatario_email: string; destinatario_nombre: string; contenido_html?: string; canal?: 'smtp' | 'resend'
   }) => {
-    if (!detalle || !orgId) return
+    if (!detalle) return
+    if (!orgId) {
+      setError('Tu cuenta no tiene una organización de veeduría asociada. Pídele al administrador que te asigne una.')
+      return
+    }
     setEnviando(true); setError('')
     try {
-      const res = await api.enviarDenuncia(detalle.expediente.id, { ...opts, org_id: orgId })
+      const res = await api.enviarDenuncia(detalle.expediente.id, { ...opts, org_id: orgId, canal: opts.canal })
       setEnvioOk(res)
       // Refrescar el expediente para ver el nuevo estado
       const d = await api.obtenerExpediente(detalle.expediente.id)
@@ -1182,6 +1186,7 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
   const [modalEnvio, setModalEnvio] = useState(false)
   const [destEmail, setDestEmail] = useState('')
   const [destNombre, setDestNombre] = useState('')
+  const [canalEnvio, setCanalEnvio] = useState<'smtp' | 'resend'>('resend')
 
   // F4 — requerimientos (respuestas recibidas)
   const [reqs, setReqs] = useState<api.Requerimiento[]>([])
@@ -1355,7 +1360,7 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
                     <span style={{ cursor:'pointer', color:INK55 }} onClick={() => setModalEnvio(false)}><X size={16} /></span>
                   </div>
                   <p style={{ fontSize:13, color:INK55, marginBottom:14 }}>
-                    Se enviará a la entidad contratante con consecutivo <b>VEE-{new Date().getFullYear()}-XXXXX</b>, Reply-To <code>veedor@numa.la</code> y plazo de 15 días hábiles.
+                    Se enviará con consecutivo <b>VEE-{new Date().getFullYear()}-XXXXX</b>, Reply-To <code>veedor@numa.la</code> y plazo de 15 días hábiles.
                   </p>
                   <label style={{ display:'block', fontSize:13, fontWeight:600, color:INK, marginBottom:4 }}>Email del destinatario *</label>
                   <input
@@ -1367,13 +1372,31 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
                   <input
                     type="text" value={destNombre} onChange={e => setDestNombre(e.target.value)}
                     placeholder="Dr. Juan Pérez"
-                    style={{ width:'100%', padding:'8px 12px', border:`1px solid ${INK12}`, borderRadius:8, fontSize:13, color:INK, background:WHITE, boxSizing:'border-box', marginBottom:16 }}
+                    style={{ width:'100%', padding:'8px 12px', border:`1px solid ${INK12}`, borderRadius:8, fontSize:13, color:INK, background:WHITE, boxSizing:'border-box', marginBottom:14 }}
                   />
+                  <label style={{ display:'block', fontSize:13, fontWeight:600, color:INK, marginBottom:6 }}>Canal de envío</label>
+                  <div style={{ display:'flex', gap:8, marginBottom:18 }}>
+                    {(['resend', 'smtp'] as const).map(c => (
+                      <button key={c} onClick={() => setCanalEnvio(c)} style={{
+                        flex:1, padding:'8px 0', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer',
+                        border: `2px solid ${canalEnvio === c ? INK : INK12}`,
+                        background: canalEnvio === c ? 'rgba(10,46,34,0.06)' : WHITE,
+                        color: canalEnvio === c ? INK : INK55,
+                      }}>
+                        {c === 'resend' ? '📧 Resend (resend.com)' : '🖧 SMTP propio'}
+                      </button>
+                    ))}
+                  </div>
+                  {canalEnvio === 'smtp' && (
+                    <p style={{ fontSize:12, color:AMBER, marginBottom:12, padding:'8px 10px', background:`${AMBER}12`, borderRadius:8 }}>
+                      Asegúrate de haber configurado el SMTP de tu organización en Configuración → Envío.
+                    </p>
+                  )}
                   <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
                     <Btn tone="ghost" onClick={() => setModalEnvio(false)}>Cancelar</Btn>
                     <Btn tone="ink" disabled={!destEmail || enviando} onClick={async () => {
                       setModalEnvio(false)
-                      await onEnviarDenuncia({ destinatario_email: destEmail, destinatario_nombre: destNombre })
+                      await onEnviarDenuncia({ destinatario_email: destEmail, destinatario_nombre: destNombre, canal: canalEnvio })
                     }}>
                       <Send size={13} /> Confirmar envío
                     </Btn>

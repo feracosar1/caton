@@ -481,7 +481,7 @@ export function montarVeeduria(app, { auth, supabase }) {
   // Usa SMTP propio de la org si está configurado, cae en Resend si no.
   app.post('/veeduria/expediente/:id/enviar', auth, async (req, res) => {
     const expedienteId = req.params.id;
-    const { destinatario_email, destinatario_nombre, org_id, contenido_html } = req.body;
+    const { destinatario_email, destinatario_nombre, org_id, contenido_html, canal: canalForzado } = req.body;
     if (!destinatario_email || !org_id) {
       return err(res, new Error('destinatario_email y org_id requeridos'));
     }
@@ -514,6 +514,7 @@ export function montarVeeduria(app, { auth, supabase }) {
           expediente_id:       String(expedienteId),
           message_id:          messageId,
           tipo:                'derecho_peticion',
+          canal:               canalForzado || null,
           destinatario_email,
           destinatario_nombre: destinatario_nombre || destinatario_email,
           consecutivo,
@@ -540,10 +541,11 @@ export function montarVeeduria(app, { auth, supabase }) {
         ? `${destinatario_nombre} <${destinatario_email}>`
         : destinatario_email;
 
-      // 5. Intentar SMTP propio de la org; si no existe, caer en Resend
-      const smtpCfg = await obtenerSmtpOrg(supabase, org_id);
+      // 5. Canal de envío: SMTP propio o Resend.
+      //    canalForzado = 'smtp' | 'resend' | undefined (undefined = auto SMTP-first).
+      const smtpCfg = (canalForzado !== 'resend') ? await obtenerSmtpOrg(supabase, org_id) : null;
       let canal;
-      if (smtpCfg) {
+      if (smtpCfg && canalForzado !== 'resend') {
         await sendViaSmtp(smtpCfg, {
           to:        toAddr,
           subject,
@@ -554,6 +556,9 @@ export function montarVeeduria(app, { auth, supabase }) {
         canal = 'smtp';
         console.log(`[VEEDOR] SMTP propio → ${destinatario_email} (${smtpCfg.smtp_host})`);
       } else {
+        if (canalForzado === 'smtp' && !smtpCfg) {
+          throw new Error('SMTP propio no configurado. Configúralo en Configuración → Envío o usa Resend.');
+        }
         const fromAddr = process.env.RESEND_FROM || 'Veeduría Ciudadana <veedor@numa.la>';
         await sendViaResend({
           from:    fromAddr,
@@ -590,7 +595,12 @@ export function montarVeeduria(app, { auth, supabase }) {
         destinatario_nombre: destinatario_nombre || destinatario_email,
       }, { onConflict: 'id_proceso' }).select('id');
 
-      // 8. Actualizar estado del expediente
+      // 8. Actualizar canal real en el log (ahora que sabemos cuál se usó)
+      await supabase.from('veedor_email_log')
+        .update({ canal })
+        .eq('message_id', messageId);
+
+      // 9. Actualizar estado del expediente
       await repo.actualizarEstado(expedienteId, 'denuncia_enviada');
 
       console.log(`[VEEDOR] Enviado ${consecutivo} → ${destinatario_email} (exp ${expedienteId}, canal: ${canal})`);

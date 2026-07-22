@@ -277,8 +277,9 @@ export interface EnvioResult {
 export const enviarDenuncia = (id: number, opts: {
   destinatario_email: string
   destinatario_nombre: string
-  org_id: string            // org de NUMA del usuario autenticado (para RPCs de consecutivo)
+  org_id: string            // org de la veeduría (para RPCs de consecutivo)
   contenido_html?: string   // usa el guardado si se omite
+  canal?: 'smtp' | 'resend' // forzar canal (undefined = auto SMTP-first)
 }) =>
   veedorFetch<EnvioResult>(`/veeduria/expediente/${id}/enviar`, 'POST', opts, 30_000)
 
