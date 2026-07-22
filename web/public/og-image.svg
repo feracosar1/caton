@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Fondo verde oscuro -->
+  <rect width="1200" height="630" fill="#0F3D2E"/>
+
+  <!-- Textura sutil: líneas diagonales muy tenues -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
+      <line x1="0" y1="0" x2="0" y2="40" stroke="#C6A15B" stroke-width="0.3" opacity="0.08"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <!-- ════ OJO CENTRAL ════ -->
+  <!-- Triángulo dorado grande -->
+  <polygon points="600,80 960,540 240,540"
+    fill="none" stroke="#C6A15B" stroke-width="4" stroke-linejoin="round"/>
+
+  <!-- Interior triángulo: degradado oscuro sutil -->
+  <polygon points="600,80 960,540 240,540" fill="#0a2e20" opacity="0.4"/>
+
+  <!-- Ojo dentro del triángulo -->
+  <!-- Párpado superior -->
+  <path d="M370,360 Q600,220 830,360" fill="none" stroke="#C6A15B" stroke-width="5" stroke-linecap="round"/>
+  <!-- Párpado inferior -->
+  <path d="M370,360 Q600,475 830,360" fill="none" stroke="#C6A15B" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Iris exterior -->
+  <circle cx="600" cy="360" r="75" fill="none" stroke="#C6A15B" stroke-width="4"/>
+  <!-- Iris interior -->
+  <circle cx="600" cy="360" r="55" fill="none" stroke="#C6A15B" stroke-width="1.5" opacity="0.4"/>
+
+  <!-- Pupila -->
+  <circle cx="600" cy="360" r="38" fill="#C6A15B"/>
+
+  <!-- Brillo pupila -->
+  <circle cx="622" cy="340" r="12" fill="#0F3D2E" opacity="0.45"/>
+  <circle cx="615" cy="335" r="5" fill="#0F3D2E" opacity="0.2"/>
+
+  <!-- Destellos en vértices del triángulo -->
+  <line x1="600" y1="80" x2="600" y2="55" stroke="#C6A15B" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <line x1="600" y1="80" x2="585" y2="62" stroke="#C6A15B" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+  <line x1="600" y1="80" x2="615" y2="62" stroke="#C6A15B" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+
+  <line x1="960" y1="540" x2="978" y2="558" stroke="#C6A15B" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <line x1="960" y1="540" x2="978" y2="538" stroke="#C6A15B" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+
+  <line x1="240" y1="540" x2="222" y2="558" stroke="#C6A15B" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+  <line x1="240" y1="540" x2="222" y2="538" stroke="#C6A15B" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- ════ TEXTO ════ -->
+  <!-- CATÓN — nombre principal -->
+  <text x="600" y="598"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="52"
+    font-weight="bold"
+    letter-spacing="18"
+    fill="#C6A15B"
+    text-anchor="middle"
+    dominant-baseline="middle">CATÓN</text>
+
+  <!-- Subtítulo -->
+  <text x="600" y="618"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="18"
+    letter-spacing="5"
+    fill="#C6A15B"
+    opacity="0.65"
+    text-anchor="middle"
+    dominant-baseline="middle">EL OJO QUE TODO LO VE</text>
+</svg>
