@@ -66,11 +66,10 @@ export async function exportarDenunciaDocx(opts: ExportDenunciaOpts): Promise<Bl
   // Parsear HTML del editor a bloques intermedios
   const bloques = parseHtmlToDocxBlocks(html)
 
-  // Convertir bloques a párrafos Word
-  const numbering = undefined  // no numeración especial
-  const cuerpo: Paragraph[] = bloques.flatMap(b =>
-    blockToParagraph(b, { numbering, fontName: 'Times New Roman', fontSize: 11 })
-  )
+  // Convertir bloques a párrafos Word (filtrar nulls)
+  const cuerpo = bloques
+    .map(b => blockToParagraph(b, false))
+    .filter((p): p is Paragraph | Table => p !== null)
 
   // Header: consecutivo + título
   const header = new Header({
