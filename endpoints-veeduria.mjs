@@ -1129,42 +1129,102 @@ export function montarVeeduria(app, { auth, supabase }) {
         ].filter(Boolean).join(' · ') || 'todos los contratos en ejecución';
 
         const appUrl   = (process.env.APP_URL ?? 'https://caton.la').replace(/\/+$/, '');
-        const fromAddr = process.env.RESEND_FROM || 'Catón <veedor@numa.la>';
+        const fromAddr = process.env.RESEND_FROM || 'Catón <argos@caton.la>';
 
         await sendViaResend({
           from:    fromAddr,
           to:      email_destino,
-          subject: `✅ Búsqueda SECOP lista — ${todos.length.toLocaleString('es-CO')} contratos encontrados`,
-          html: `
-            <div style="font-family:Arial,sans-serif;max-width:580px;margin:0 auto;padding:24px">
-              <div style="background:#0F3D2E;padding:20px 24px;border-radius:8px 8px 0 0">
-                <h1 style="color:#fff;margin:0;font-size:20px">Catón — Veeduría Ciudadana</h1>
-              </div>
-              <div style="background:#f9f9f7;padding:28px 24px;border-radius:0 0 8px 8px;border:1px solid #e0ddd5;border-top:none">
-                <h2 style="color:#0F3D2E;margin-top:0">El escaneo de SECOP terminó</h2>
-                <p style="color:#444;font-size:15px;margin:0 0 16px">
-                  Escaneamos el universo completo de contratos con los filtros que usaste.
-                </p>
-                <div style="background:#fff;border:1px solid #e0ddd5;border-radius:6px;padding:14px 16px;margin-bottom:16px">
-                  <p style="margin:0;color:#777;font-size:12px;text-transform:uppercase;letter-spacing:.05em">Filtros aplicados</p>
-                  <p style="margin:4px 0 0;color:#0F3D2E;font-size:14px;font-weight:600">${filtrosDesc}</p>
-                </div>
-                <div style="background:#0F3D2E;border-radius:6px;padding:20px;margin-bottom:24px;text-align:center">
-                  <span style="color:#C6A15B;font-size:36px;font-weight:700;display:block">${todos.length.toLocaleString('es-CO')}</span>
-                  <span style="color:#E4EDE9;font-size:13px">contratos encontrados</span>
-                </div>
-                <div style="text-align:center;margin-bottom:20px">
-                  <a href="${appUrl}" style="display:inline-block;background:#0F3D2E;color:#fff;padding:13px 32px;border-radius:6px;text-decoration:none;font-size:15px;font-weight:600">
-                    Entrar a Catón a revisar →
-                  </a>
-                </div>
-                <p style="color:#999;font-size:12px;margin:0;text-align:center">
-                  Los resultados están ordenados por score de riesgo — los más sospechosos primero.
-                </p>
-              </div>
-            </div>
-          `,
-          replyTo: 'veedor@numa.la',
+          subject: `Catón encontró ${todos.length.toLocaleString('es-CO')} contratos — tu escaneo SECOP está listo`,
+          html: `<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:'Helvetica Neue',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F3EF;padding:32px 16px">
+  <tr><td align="center">
+    <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%">
+
+      <!-- HEADER con ojo -->
+      <tr><td style="background:#0F3D2E;border-radius:12px 12px 0 0;padding:32px 32px 24px;text-align:center">
+        <!-- El ojo que todo lo ve (SVG inline) -->
+        <div style="margin-bottom:16px">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Arco superior del ojo -->
+            <path d="M8 32 C8 32 18 14 32 14 C46 14 56 32 56 32" stroke="#C6A15B" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <!-- Arco inferior del ojo -->
+            <path d="M8 32 C8 32 18 50 32 50 C46 50 56 32 56 32" stroke="#C6A15B" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+            <!-- Iris -->
+            <circle cx="32" cy="32" r="10" stroke="#C6A15B" stroke-width="2.5" fill="none"/>
+            <!-- Pupila -->
+            <circle cx="32" cy="32" r="5" fill="#C6A15B"/>
+            <!-- Brillo -->
+            <circle cx="35" cy="29" r="1.5" fill="#0F3D2E"/>
+            <!-- Pestañas superiores -->
+            <line x1="32" y1="14" x2="32" y2="10" stroke="#C6A15B" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="22" y1="17" x2="20" y2="13" stroke="#C6A15B" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="42" y1="17" x2="44" y2="13" stroke="#C6A15B" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h1 style="color:#C6A15B;margin:0 0 4px;font-size:26px;font-weight:700;letter-spacing:0.04em">CATÓN</h1>
+        <p style="color:#E4EDE9;margin:0;font-size:12px;letter-spacing:0.12em;text-transform:uppercase">Veeduría Ciudadana</p>
+      </td></tr>
+
+      <!-- FRANJA DORADA -->
+      <tr><td style="background:#C6A15B;height:3px"></td></tr>
+
+      <!-- CUERPO -->
+      <tr><td style="background:#ffffff;padding:36px 32px 28px;border-left:1px solid #E4EDE9;border-right:1px solid #E4EDE9">
+        <p style="color:#5A6472;font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.08em">Escaneo completado</p>
+        <h2 style="color:#0B0B0B;margin:0 0 20px;font-size:22px;font-weight:700;line-height:1.3">
+          Tu escaneo de SECOP<br>está listo para revisar
+        </h2>
+        <p style="color:#5A6472;font-size:15px;line-height:1.6;margin:0 0 24px">
+          Escaneamos el universo completo de contratos públicos con los filtros que configuraste.
+          Los resultados ya están en Catón, ordenados por score de riesgo.
+        </p>
+
+        <!-- FILTROS -->
+        <div style="background:#F5F3EF;border-radius:8px;padding:14px 16px;margin-bottom:24px;border-left:3px solid #C6A15B">
+          <p style="margin:0 0 4px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Filtros aplicados</p>
+          <p style="margin:0;color:#0B0B0B;font-size:14px;font-weight:600">${filtrosDesc}</p>
+        </div>
+
+        <!-- NÚMERO GRANDE -->
+        <div style="background:#0F3D2E;border-radius:10px;padding:28px 24px;margin-bottom:28px;text-align:center">
+          <span style="display:block;color:#C6A15B;font-size:48px;font-weight:800;line-height:1;letter-spacing:-0.02em">${todos.length.toLocaleString('es-CO')}</span>
+          <span style="display:block;color:#E4EDE9;font-size:14px;margin-top:6px">contratos encontrados</span>
+          ${topScore > 0 ? `<div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(196,161,91,0.3)">
+            <span style="display:block;color:#C6A15B;font-size:22px;font-weight:700">${topScore} / 100</span>
+            <span style="display:block;color:#E4EDE9;font-size:12px;margin-top:2px">score más alto detectado</span>
+          </div>` : ''}
+        </div>
+
+        <!-- CTA -->
+        <div style="text-align:center;margin-bottom:28px">
+          <a href="${appUrl}" style="display:inline-block;background:#C6A15B;color:#0B0B0B;padding:15px 40px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;letter-spacing:0.02em">
+            Entrar a Catón a revisar →
+          </a>
+        </div>
+
+        <p style="color:#9CA3AF;font-size:12px;margin:0;text-align:center;line-height:1.6">
+          Los contratos con mayor score de riesgo aparecen primero.<br>
+          Catón — El ojo que todo lo ve.
+        </p>
+      </td></tr>
+
+      <!-- FOOTER -->
+      <tr><td style="background:#0F3D2E;border-radius:0 0 12px 12px;padding:20px 32px;text-align:center">
+        <p style="color:#E4EDE9;font-size:12px;margin:0;opacity:0.7">
+          Recibiste este correo porque solicitaste un escaneo en Catón.<br>
+          <a href="${appUrl}" style="color:#C6A15B;text-decoration:none">caton.la</a>
+        </p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>`,
+          replyTo: 'veedor@caton.la',
         });
 
         console.log(`[ASYNC] job ${job.id} DONE: ${todos.length} contratos → notificación enviada a ${email_destino}`);
@@ -1179,28 +1239,47 @@ export function montarVeeduria(app, { auth, supabase }) {
 
         // Email de error también
         const appUrl   = (process.env.APP_URL ?? 'https://caton.la').replace(/\/+$/, '');
-        const fromAddr = process.env.RESEND_FROM || 'Catón <veedor@numa.la>';
+        const fromAddrErr = process.env.RESEND_FROM || 'Catón <argos@caton.la>';
         await sendViaResend({
-          from:    fromAddr,
+          from:    fromAddrErr,
           to:      email_destino,
-          subject: '⚠️ Error en tu búsqueda SECOP — Catón',
-          html: `<div style="font-family:Arial,sans-serif;padding:24px">
-                   <p>Hubo un error procesando tu búsqueda. Por favor intenta de nuevo.</p>
-                   <p style="color:#888;font-size:12px">Detalle técnico: ${e.message}</p>
-                   <p><a href="${appUrl}" style="color:#0F3D2E">Volver a Catón</a></p>
+          subject: 'Catón — hubo un error en tu escaneo SECOP',
+          html: `<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 16px">
+                   <div style="background:#0F3D2E;border-radius:8px 8px 0 0;padding:24px;text-align:center">
+                     <p style="color:#C6A15B;font-size:20px;font-weight:700;margin:0">CATÓN</p>
+                   </div>
+                   <div style="background:#fff;border:1px solid #E4EDE9;border-top:none;border-radius:0 0 8px 8px;padding:28px 24px">
+                     <h2 style="color:#0B0B0B;margin:0 0 12px">Hubo un error en tu escaneo</h2>
+                     <p style="color:#5A6472;font-size:15px">El escaneo no pudo completarse. Por favor intenta de nuevo desde Catón.</p>
+                     <p style="color:#bbb;font-size:11px;font-family:monospace">Error: ${e.message}</p>
+                     <a href="${appUrl}" style="display:inline-block;background:#0F3D2E;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:14px;font-weight:600">Volver a Catón →</a>
+                   </div>
                  </div>`,
-          replyTo: 'veedor@numa.la',
+          replyTo: 'argos@caton.la',
         }).catch(() => {});
       }
     })();
   });
 
-  // ── GET /veeduria/buscar-async/:id — estado del job ──────────────────────
+  // ── GET /veeduria/buscar-async — lista de jobs recientes ──────────────────
+  app.get('/veeduria/buscar-async', auth, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('veedor_busquedas_async')
+        .select('id,filtros,estado,total_contratos,top_score,error_msg,created_at,completado_at')
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (error) throw new Error(error.message);
+      ok(res, { jobs: data ?? [] });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── GET /veeduria/buscar-async/:id — estado de un job ────────────────────
   app.get('/veeduria/buscar-async/:id', auth, async (req, res) => {
     try {
       const { data, error } = await supabase
         .from('veedor_busquedas_async')
-        .select('id,estado,total_contratos,top_score,error_msg,created_at,completado_at')
+        .select('id,filtros,estado,total_contratos,top_score,error_msg,created_at,completado_at')
         .eq('id', req.params.id)
         .single();
       if (error) throw new Error(error.message);

@@ -40,6 +40,7 @@ const RED    = HALLAZGO
 const INK06  = 'rgba(10,46,34,0.06)'
 const INK12  = 'rgba(10,46,34,0.10)'
 const INK55  = 'rgba(10,46,34,0.50)'
+const DORADO = '#C6A15B'
 
 const fmtCOP = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
@@ -827,6 +828,12 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
   const [emailAsync, setEmailAsync]   = useState('')
   const [enviandoAsync, setEnviando]  = useState(false)
   const [asyncOk, setAsyncOk]         = useState('')
+  const [jobs, setJobs]               = useState<api.JobAsync[]>([])
+
+  // Carga escaneos recientes al montar
+  useEffect(() => {
+    api.listarJobsAsync().then(r => setJobs(r.jobs ?? [])).catch(() => {})
+  }, [])
 
   const lanzarAsync = async () => {
     if (!emailAsync.trim()) return
@@ -836,8 +843,17 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
       const r = await api.buscarAsync(f, emailAsync.trim())
       setAsyncOk(`Búsqueda en curso (job ${r.job_id?.slice(0, 8)}…). Te avisamos a ${emailAsync.trim()} cuando termine.`)
       setEmailAsync('')
+      // Refrescar lista
+      setTimeout(() => api.listarJobsAsync().then(r2 => setJobs(r2.jobs ?? [])).catch(() => {}), 800)
     } catch (e) { setAsyncOk(`Error: ${e.message}`) }
     finally { setEnviando(false) }
+  }
+
+  const aplicarFiltrosJob = (job: api.JobAsync) => {
+    const f = job.filtros ?? {}
+    Object.entries(f).forEach(([k, v]) => setF(k as keyof api.FiltrosBusqueda, v))
+    setShowAsync(false)
+    setTimeout(() => buscar(), 100)
   }
 
   const campo = (k: keyof api.FiltrosBusqueda, label: string, type = 'text', ph = '') => (
@@ -930,6 +946,68 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
                 </div>
               )
             }
+
+            {/* Escaneos recientes */}
+            {jobs.length > 0 && (
+              <div style={{ marginTop: 16, borderTop: `1px solid ${INK12}`, paddingTop: 14 }}>
+                <p style={{ margin: '0 0 10px', fontSize: 12, color: INK55, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>
+                  Escaneos anteriores
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {jobs.map(job => {
+                    const fecha = new Date(job.created_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+                    const filtrosDesc = Object.entries(job.filtros ?? {})
+                      .filter(([, v]) => v)
+                      .map(([k, v]) => `${k}: "${v}"`)
+                      .join(' · ') || 'todos los contratos'
+                    const esCompletada = job.estado === 'completada'
+                    const esError      = job.estado === 'error'
+                    const esCorriendo  = job.estado === 'corriendo'
+                    return (
+                      <div key={job.id} style={{
+                        display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '10px 12px', borderRadius: 6,
+                        background: esCompletada ? '#fff' : esError ? '#FFF5F5' : '#FFFBF0',
+                        border: `1px solid ${esCompletada ? INK12 : esError ? '#FFC9C9' : '#FFE8A3'}`,
+                        fontSize: 12,
+                      }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                            <span style={{
+                              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4,
+                              background: esCompletada ? '#D1FAE5' : esError ? '#FEE2E2' : '#FEF3C7',
+                              color: esCompletada ? '#065F46' : esError ? '#991B1B' : '#92400E',
+                            }}>
+                              {esCompletada ? '✓ Listo' : esError ? '✗ Error' : '⏳ Corriendo'}
+                            </span>
+                            <span style={{ color: INK55 }}>{fecha}</span>
+                            {esCompletada && job.total_contratos != null && (
+                              <span style={{ fontWeight: 700, color: '#0F3D2E' }}>
+                                {job.total_contratos.toLocaleString('es-CO')} contratos
+                              </span>
+                            )}
+                            {esCompletada && job.top_score != null && (
+                              <span style={{ color: DORADO, fontWeight: 700 }}>· score {job.top_score}</span>
+                            )}
+                          </div>
+                          <div style={{ color: INK55, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {filtrosDesc}
+                          </div>
+                        </div>
+                        {esCompletada && (
+                          <button
+                            onClick={() => aplicarFiltrosJob(job)}
+                            style={{ flexShrink: 0, background: '#0F3D2E', color: '#fff', border: 'none', borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            Ver resultados →
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

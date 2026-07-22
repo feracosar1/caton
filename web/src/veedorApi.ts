@@ -227,6 +227,19 @@ export const resumenBusqueda = (f: FiltrosBusqueda) =>
 export const buscarAsync = (f: FiltrosBusqueda, email_destino: string) =>
   veedorFetch<{ job_id: string; mensaje: string }>('/veeduria/buscar-async', 'POST', { ...f, email_destino })
 
+export interface JobAsync {
+  id: string
+  filtros: Record<string, string>
+  estado: 'corriendo' | 'completada' | 'error'
+  total_contratos: number | null
+  top_score: number | null
+  error_msg: string | null
+  created_at: string
+  completado_at: string | null
+}
+export const listarJobsAsync = () =>
+  veedorFetch<{ jobs: JobAsync[] }>('/veeduria/buscar-async', 'GET')
+
 // Auditar corre el pipeline completo (descarga + extracción LLM + motor) de forma
 // síncrona → puede tardar (5-8 min en contratos con muchos PDFs). Timeout amplio.
 export const auditarContrato = (idContrato: string) =>
