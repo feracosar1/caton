@@ -11,6 +11,8 @@
  * nada se envía solo.
  */
 
+import { catonRefreshToken, catonToken as catonTokenFn } from './catonClient.js'
+
 export const VEEDOR_URL = import.meta.env.VITE_VEEDOR_URL ?? '/api/veedor'
 
 // JWT de sesión (CATÓN o NUMA). El componente lo inyecta con setAuthToken(token).
@@ -19,13 +21,11 @@ export const VEEDOR_URL = import.meta.env.VITE_VEEDOR_URL ?? '/api/veedor'
 let authToken = (import.meta.env.VITE_VEEDOR_SECRET as string | undefined) ?? ''
 export const setAuthToken = (t: string) => { authToken = t || ((import.meta.env.VITE_VEEDOR_SECRET as string | undefined) ?? '') }
 
-// Refresh CATÓN JWT: lee la fn del cliente para no crear dependencia circular.
-// Se llama solo cuando el server responde 401, una vez por petición.
+// Refresh CATÓN JWT: se llama solo cuando el server responde 401, una vez por petición.
 async function tryRefreshCatonToken(): Promise<boolean> {
   try {
-    const { catonRefreshToken, catonToken } = await import('./catonClient.js')
     const ok = await catonRefreshToken()
-    if (ok) authToken = catonToken()
+    if (ok) authToken = catonTokenFn()
     return ok
   } catch { return false }
 }
@@ -47,7 +47,12 @@ export async function veedorFetch<T = unknown>(path: string, method = 'GET', bod
     // Si el token expiró, intentar refresh y reintentar una sola vez.
     if (res.status === 401) {
       const refreshed = await tryRefreshCatonToken()
-      if (refreshed) res = await doFetch(path, method, body, ctrl.signal)
+      if (refreshed) {
+        res = await doFetch(path, method, body, ctrl.signal)
+      } else {
+        // Refresh falló — sesión completamente expirada
+        throw new Error('Sesión expirada — recarga la página e inicia sesión de nuevo')
+      }
     }
     const data = await res.json()
     if (!res.ok || data?.ok === false) throw new Error(data?.error ?? `HTTP ${res.status}`)
