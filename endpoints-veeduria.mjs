@@ -926,6 +926,61 @@ export function montarVeeduria(app, { auth, supabase }) {
       if (error) throw new Error(error.message);
       console.log(`[CATON] Nuevo lead: ${email} (${organizacion ?? 'sin org'})`);
       ok(res, { ok: true, id: data?.id });
+
+      // Notificación a Fernando — fire and forget
+      const ADMIN_EMAIL = process.env.CATON_ADMIN_EMAIL || 'feracosar1@gmail.com';
+      const fromAddr = process.env.RESEND_FROM || 'Catón <argos@caton.la>';
+      const msgHtml = mensaje ? `<p style="margin:0 0 8px;color:#5A6472;font-size:14px;line-height:1.6;white-space:pre-line">${String(mensaje).replace(/</g,'&lt;')}</p>` : '<p style="margin:0;color:#9CA3AF;font-size:13px">Sin mensaje.</p>';
+      sendViaResend({
+        from: fromAddr,
+        to: [ADMIN_EMAIL],
+        subject: `Catón — nuevo contacto: ${String(nombre).slice(0,60)} (${organizacion ?? 'sin org'})`,
+        html: `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#F5F3EF;font-family:'Helvetica Neue',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F3EF;padding:28px 16px">
+  <tr><td align="center">
+    <table width="520" cellpadding="0" cellspacing="0" style="max-width:520px;width:100%">
+      <tr><td style="background:#0F3D2E;border-radius:10px 10px 0 0;padding:24px 28px 18px;text-align:center">
+        <h1 style="color:#C6A15B;margin:0;font-size:22px;font-weight:700;letter-spacing:0.04em">CATÓN</h1>
+        <p style="color:#E4EDE9;margin:4px 0 0;font-size:11px;letter-spacing:0.12em;text-transform:uppercase">Nuevo mensaje de contacto</p>
+      </td></tr>
+      <tr><td style="background:#C6A15B;height:2px"></td></tr>
+      <tr><td style="background:#ffffff;padding:28px 28px 20px;border-left:1px solid #E4EDE9;border-right:1px solid #E4EDE9">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          <tr><td style="padding-bottom:16px;border-bottom:1px solid #E4EDE9">
+            <p style="margin:0 0 4px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Nombre</p>
+            <p style="margin:0;color:#0B0B0B;font-size:15px;font-weight:700">${String(nombre)}</p>
+          </td></tr>
+          <tr><td style="padding:14px 0 16px;border-bottom:1px solid #E4EDE9">
+            <p style="margin:0 0 4px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Correo</p>
+            <p style="margin:0;color:#0B0B0B;font-size:14px"><a href="mailto:${String(email)}" style="color:#0F3D2E">${String(email)}</a></p>
+          </td></tr>
+          ${cargo ? `<tr><td style="padding:14px 0 16px;border-bottom:1px solid #E4EDE9">
+            <p style="margin:0 0 4px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Cargo</p>
+            <p style="margin:0;color:#0B0B0B;font-size:14px">${String(cargo)}</p>
+          </td></tr>` : ''}
+          ${organizacion ? `<tr><td style="padding:14px 0 16px;border-bottom:1px solid #E4EDE9">
+            <p style="margin:0 0 4px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Organización</p>
+            <p style="margin:0;color:#0B0B0B;font-size:14px">${String(organizacion)}</p>
+          </td></tr>` : ''}
+          ${telefono ? `<tr><td style="padding:14px 0 16px;border-bottom:1px solid #E4EDE9">
+            <p style="margin:0 0 4px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Teléfono</p>
+            <p style="margin:0;color:#0B0B0B;font-size:14px">${String(telefono)}</p>
+          </td></tr>` : ''}
+          <tr><td style="padding-top:16px">
+            <p style="margin:0 0 8px;color:#5A6472;font-size:11px;text-transform:uppercase;letter-spacing:0.08em">Mensaje</p>
+            ${msgHtml}
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="background:#0F3D2E;border-radius:0 0 10px 10px;padding:16px 28px;text-align:center">
+        <a href="https://caton.la/app/admin" style="color:#C6A15B;text-decoration:none;font-size:12px">Ver en panel de administración →</a>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`,
+      }).catch(e => console.error('[CATON] notif lead email error:', e.message));
     } catch (e) { err(res, e); }
   });
 
@@ -993,6 +1048,123 @@ export function montarVeeduria(app, { auth, supabase }) {
         .single();
       if (error) throw new Error(error.message);
       ok(res, { lead: data });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── ADMIN: veedor_orgs / caton_entidades / caton_org_entidades ───────────────
+  // Estas tablas tienen RLS sin policy de INSERT para authenticated — se accede
+  // desde el backend (service_role) para evitar el 403 en el frontend.
+
+  // POST /veeduria/admin/orgs — crear organización
+  app.post('/veeduria/admin/orgs', auth, async (req, res) => {
+    const { nombre, tipo, ciudad, pipeline_tipo } = req.body ?? {};
+    if (!nombre || !tipo) return err(res, new Error('nombre y tipo son requeridos'));
+    const TIPOS_VALIDOS = ['veeduria', 'contraloria', 'ong', 'academia'];
+    if (!TIPOS_VALIDOS.includes(tipo)) return err(res, new Error('tipo inválido'));
+    try {
+      const { data, error } = await supabase
+        .from('veedor_orgs')
+        .insert({
+          nombre:        String(nombre).slice(0, 200),
+          tipo,
+          ciudad:        ciudad ? String(ciudad).slice(0, 100) : null,
+          pipeline_tipo: pipeline_tipo || tipo,
+        })
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
+    } catch (e) { err(res, e); }
+  });
+
+  // PATCH /veeduria/admin/orgs/:id — actualizar campos de la org
+  app.patch('/veeduria/admin/orgs/:id', auth, async (req, res) => {
+    const allowed = ['nombre', 'tipo', 'ciudad', 'pipeline_tipo', 'activa',
+                     'dominio', 'dominio_verificado', 'logo_url'];
+    const updates = { updated_at: new Date().toISOString() };
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    try {
+      const { data, error } = await supabase
+        .from('veedor_orgs')
+        .update(updates)
+        .eq('id', req.params.id)
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
+    } catch (e) { err(res, e); }
+  });
+
+  // POST /veeduria/admin/entidades — crear entidad en el catálogo
+  app.post('/veeduria/admin/entidades', auth, async (req, res) => {
+    const { nit, nombre, sigla, nivel, deptos } = req.body ?? {};
+    if (!nit || !nombre) return err(res, new Error('nit y nombre son requeridos'));
+    const NIVELES = ['nacional', 'departamental', 'municipal'];
+    try {
+      const { data, error } = await supabase
+        .from('caton_entidades')
+        .insert({
+          nit:    String(nit).replace(/\D/g, '').slice(0, 20),
+          nombre: String(nombre).slice(0, 300),
+          sigla:  sigla ? String(sigla).slice(0, 30) : null,
+          nivel:  NIVELES.includes(nivel) ? nivel : 'municipal',
+          deptos: Array.isArray(deptos) ? deptos : [],
+        })
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
+    } catch (e) { err(res, e); }
+  });
+
+  // PATCH /veeduria/admin/entidades/:id — actualizar entidad (activa, etc.)
+  app.patch('/veeduria/admin/entidades/:id', auth, async (req, res) => {
+    const allowed = ['nombre', 'sigla', 'nivel', 'deptos', 'activa'];
+    const updates = { updated_at: new Date().toISOString() };
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    try {
+      const { data, error } = await supabase
+        .from('caton_entidades')
+        .update(updates)
+        .eq('id', req.params.id)
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
+    } catch (e) { err(res, e); }
+  });
+
+  // POST /veeduria/admin/org-entidades — vincular entidad a una org
+  app.post('/veeduria/admin/org-entidades', auth, async (req, res) => {
+    const { org_id, entidad_id } = req.body ?? {};
+    if (!org_id || !entidad_id) return err(res, new Error('org_id y entidad_id son requeridos'));
+    try {
+      const { data, error } = await supabase
+        .from('caton_org_entidades')
+        .insert({ org_id, entidad_id, activo: true })
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
+    } catch (e) { err(res, e); }
+  });
+
+  // PATCH /veeduria/admin/org-entidades/:id — desactivar vínculo (soft delete)
+  app.patch('/veeduria/admin/org-entidades/:id', auth, async (req, res) => {
+    const { activo } = req.body ?? {};
+    try {
+      const { data, error } = await supabase
+        .from('caton_org_entidades')
+        .update({ activo: activo !== undefined ? !!activo : false })
+        .eq('id', req.params.id)
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
     } catch (e) { err(res, e); }
   });
 

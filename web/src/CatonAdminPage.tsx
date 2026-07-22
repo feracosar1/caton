@@ -314,7 +314,7 @@ function TabOrgs() {
 
   async function toggleActiva(org: OrgRow) {
     try {
-      await catonPatch('veedor_orgs', `id=eq.${org.id}`, { activa: !org.activa })
+      await veedorFetch(`/veeduria/admin/orgs/${org.id}`, 'PATCH', { activa: !org.activa })
       setOrgs(prev => prev.map(o => o.id === org.id ? { ...o, activa: !org.activa } : o))
     } catch (e) { alert(e instanceof Error ? e.message : 'Error') }
   }
@@ -456,8 +456,8 @@ function OrgConfigPanel({ org, onUpdated }: { org: OrgRow; onUpdated: (o: OrgRow
       dominio_verificado:  dominioVerif,
     }
     try {
-      const rows = await catonPatch('veedor_orgs', `id=eq.${org.id}`, patch) as OrgRow[]
-      if (rows?.[0]) onUpdated(rows[0])
+      const updated = await veedorFetch(`/veeduria/admin/orgs/${org.id}`, 'PATCH', patch) as OrgRow
+      if (updated) onUpdated(updated)
       setMsg('Guardado ✓')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Error guardando')
@@ -719,7 +719,7 @@ function SujetosVigiladosPanel({ orgId }: { orgId: string }) {
   async function addEntidad() {
     if (!selected) return
     try {
-      await catonPost('caton_org_entidades', { org_id: orgId, entidad_id: selected })
+      await veedorFetch('/veeduria/admin/org-entidades', 'POST', { org_id: orgId, entidad_id: selected })
       setSelected('')
       setAdding(false)
       void loadLinks()
@@ -728,7 +728,7 @@ function SujetosVigiladosPanel({ orgId }: { orgId: string }) {
 
   async function removeEntidad(linkId: string) {
     try {
-      await catonPatch('caton_org_entidades', `id=eq.${linkId}`, { activo: false })
+      await veedorFetch(`/veeduria/admin/org-entidades/${linkId}`, 'PATCH', { activo: false })
       setLinks(prev => prev.filter(l => l.id !== linkId))
     } catch (e) { alert(e instanceof Error ? e.message : 'Error') }
   }
@@ -848,13 +848,13 @@ function FormNuevaOrg({ onCreated, onCancel }: { onCreated: (o: OrgRow) => void;
     e.preventDefault()
     setLoading(true); setError('')
     try {
-      const rows = await catonPost('veedor_orgs', {
+      const created = await veedorFetch('/veeduria/admin/orgs', 'POST', {
         nombre:        nombre.trim(),
         tipo,
         ciudad:        ciudad.trim() || null,
         pipeline_tipo: pipeline,
-      }) as OrgRow[]
-      onCreated(rows[0])
+      }) as OrgRow
+      onCreated(created)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error')
     } finally { setLoading(false) }
@@ -925,7 +925,7 @@ function TabEntidades() {
 
   async function toggleActiva(e: EntidadRow) {
     try {
-      await catonPatch('caton_entidades', `id=eq.${e.id}`, { activa: !e.activa })
+      await veedorFetch(`/veeduria/admin/entidades/${e.id}`, 'PATCH', { activa: !e.activa })
       setEntidades(prev => prev.map(x => x.id === e.id ? { ...x, activa: !e.activa } : x))
     } catch (err) { alert(err instanceof Error ? err.message : 'Error') }
   }
@@ -1016,14 +1016,14 @@ function FormNuevaEntidad({ onCreated, onCancel }: { onCreated: (e: EntidadRow) 
     e.preventDefault()
     setLoading(true); setError('')
     try {
-      const rows = await catonPost('caton_entidades', {
+      const created = await veedorFetch('/veeduria/admin/entidades', 'POST', {
         nit:    nit.trim().replace(/\D/g, ''),
         nombre: nombre.trim(),
         sigla:  sigla.trim() || null,
         nivel,
-        deptos: deptos.split(',').map(s => s.trim()).filter(Boolean),
-      }) as EntidadRow[]
-      onCreated(rows[0])
+        deptos: deptos.split(',').map((s: string) => s.trim()).filter(Boolean),
+      }) as EntidadRow
+      onCreated(created)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error')
     } finally { setLoading(false) }
