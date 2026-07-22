@@ -19,7 +19,7 @@ import {
   PageNumber,
   HeadingLevel,
 } from 'docx'
-import { parseHtmlToDocxBlocks, blockToParagraph } from './exportDocx.js'
+import { parseHtmlToDocxBlocks, blockToParagraph, numberingConfig } from './exportDocx.js'
 
 export interface ExportDenunciaOpts {
   html: string
@@ -100,7 +100,10 @@ export async function exportarDenunciaDocx(opts: ExportDenunciaOpts): Promise<Bl
     new Paragraph({
       alignment: AlignmentType.RIGHT,
       children: [
-        new TextRun({ children: ['Página ', PageNumber.CURRENT, ' de ', PageNumber.TOTAL_PAGES], size: 18, color: GRIS }),
+        new TextRun({ text: 'Página ', size: 18, color: GRIS }),
+        new TextRun({ children: [PageNumber.CURRENT], size: 18, color: GRIS }),
+        new TextRun({ text: ' de ', size: 18, color: GRIS }),
+        new TextRun({ children: [PageNumber.TOTAL_PAGES], size: 18, color: GRIS }),
       ],
     })
   )
@@ -121,7 +124,7 @@ export async function exportarDenunciaDocx(opts: ExportDenunciaOpts): Promise<Bl
   }
 
   const doc = new Document({
-    numbering: { config: [] },
+    numbering: numberingConfig,
     sections: [
       {
         properties: {

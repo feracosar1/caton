@@ -549,7 +549,7 @@ function blocksToDocxChildren(blocks: DocBlock[], rayado = false): (Paragraph | 
 
 // ─── numbering configuration ──────────────────────────────────────────────────
 
-const numberingConfig = {
+export const numberingConfig = {
   config: [
     {
       reference: DECIMAL_REF,
