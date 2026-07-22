@@ -25,6 +25,42 @@ import { encrypt, obtenerSmtpOrg, sendViaSmtp, sendViaResend } from './smtp-util
  * Evita ir a Socrata en tiempo real y sortea el timeout de 26s de Netlify.
  * Filtra sobre columnas indexadas + raw JSONB para estado/tipo/modalidad/depto.
  */
+async function resumenLocal(supabase, filtros = {}) {
+  let q = supabase.from('secop_contratos')
+    .select('id, valor_contrato, raw')
+    .limit(20000);
+
+  if (filtros.entidad)        q = q.ilike('entidad', `%${filtros.entidad}%`);
+  if (filtros.nitEntidad)     q = q.eq('nit_entidad', filtros.nitEntidad);
+  if (filtros.contratista)    q = q.ilike('contratista', `%${filtros.contratista}%`);
+  if (filtros.objeto)         q = q.ilike('objeto', `%${filtros.objeto}%`);
+  if (filtros.valorMin != null) q = q.gte('valor_contrato', Number(filtros.valorMin));
+  if (filtros.desde)          q = q.gte('fecha_firma', filtros.desde);
+  if (filtros.hasta)          q = q.lte('fecha_firma', filtros.hasta + 'T23:59:59');
+  if (filtros.sinRuido)       q = q.gt('valor_contrato', 0);
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  let rows = data || [];
+  // Filtros post-query sobre raw (estado, tipo, soloEmpresas):
+  if (filtros.estado && filtros.estado !== 'todos') {
+    rows = rows.filter(c => (c.raw?.estado_contrato) === filtros.estado);
+  } else if (!filtros.estado) {
+    rows = rows.filter(c => (c.raw?.estado_contrato) === 'En ejecución');
+  }
+  if (filtros.soloEmpresas) rows = rows.filter(c => c.raw?.tipodocproveedor === 'NIT');
+  if (filtros.sinServiciosPersonales) {
+    rows = rows.filter(c => {
+      const t = (c.raw?.tipo_de_contrato || '').toUpperCase();
+      return !(t.startsWith('PRESTACI') && t.includes('SERVICIOS') && c.raw?.tipodocproveedor !== 'NIT');
+    });
+  }
+
+  const valor_total = rows.reduce((s, c) => s + (Number(c.valor_contrato) || 0), 0);
+  return { contratos: rows.length, valor_total };
+}
+
 async function buscarLocal(supabase, filtros = {}) {
   let q = supabase.from('secop_contratos')
     .select('id, id_proceso, entidad, nit_entidad, contratista, nit_contratista, valor_contrato, fecha_firma, objeto, raw')
@@ -116,8 +152,12 @@ export function montarVeeduria(app, { auth, supabase }) {
     } catch (e) { err(res, e); }
   });
   app.get('/veeduria/resumen', auth, async (req, res) => {
-    try { ok(res, await resumenBusqueda({ ...req.query, ambito: parseAmbito(req) })); }
-    catch (e) { err(res, e); }
+    try {
+      // Primero desde DB local (<1s). Solo cae a Socrata si la tabla está vacía.
+      const local = await resumenLocal(supabase, req.query);
+      if (local.contratos > 0) return ok(res, local);
+      ok(res, await resumenBusqueda({ ...req.query, ambito: parseAmbito(req) }));
+    } catch (e) { err(res, e); }
   });
 
   // ── GRAFO Y AMAÑO (paso 2) ──
@@ -172,12 +212,16 @@ export function montarVeeduria(app, { auth, supabase }) {
       if (req.query.topN)        opts.topN = Number(req.query.topN);
       if (req.query.dias)        opts.dias = Number(req.query.dias);
       if (req.query.minEmpresas) opts.minEmpresas = Number(req.query.minEmpresas);
-      if (req.query.desde)       opts.desde = req.query.desde;         // 'YYYY' o 'YYYY-MM-DD'
+      if (req.query.desde)       opts.desde = req.query.desde;
       if (req.query.hasta)       opts.hasta = req.query.hasta;
       if (req.query.nitEntidad)  opts.nitEntidad = req.query.nitEntidad;
       if (req.query.tipo)        opts.tipoContrato = req.query.tipo;
       if (req.query.entidad)     opts.entidad = req.query.entidad;
-      ok(res, { carruseles: await detectarCarruseles(opts) });
+      // Timeout de 22s — da resultado parcial en vez de 504 del proxy Netlify.
+      const TIMEOUT_MS = 22000;
+      const timeout = new Promise(resolve => setTimeout(() => resolve([]), TIMEOUT_MS));
+      const carruseles = await Promise.race([detectarCarruseles(opts), timeout]);
+      ok(res, { carruseles });
     } catch (e) { err(res, e); }
   });
 

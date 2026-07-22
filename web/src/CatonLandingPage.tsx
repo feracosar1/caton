@@ -212,6 +212,40 @@ const CSS = `
 #caton-landing .ticker-track b { font-family:'Marcellus',serif; font-size:14px; color:var(--sello-fuerte); font-weight:400; letter-spacing:0.08em; }
 @keyframes c-ticker { from{transform:translateX(0);}to{transform:translateX(-50%);} }
 
+/* ---------- PARA QUIÉN ---------- */
+#caton-landing .pq-grid {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:28px; margin-top:56px;
+}
+#caton-landing .pq-card {
+  padding:40px 32px; border:1px solid var(--linea); position:relative;
+  background:var(--papel); transition:border-color .2s,box-shadow .2s;
+}
+#caton-landing .pq-card:hover { border-color:var(--linea-oro); box-shadow:0 12px 40px rgba(10,46,34,0.08); }
+#caton-landing .pq-card::before {
+  content:attr(data-num);
+  position:absolute; top:-1px; left:28px;
+  font-family:'Marcellus',serif; font-size:58px; letter-spacing:-0.02em;
+  color:rgba(10,46,34,0.06); line-height:1; pointer-events:none;
+}
+#caton-landing .pq-icon {
+  font-size:28px; margin-bottom:20px; display:block;
+}
+#caton-landing .pq-card h3 {
+  font-family:'Marcellus',serif; font-weight:400; font-size:22px;
+  color:var(--tinta); margin-bottom:12px; letter-spacing:0.01em;
+}
+#caton-landing .pq-tag {
+  display:inline-block; margin-bottom:16px;
+  font-family:'Inter'; font-weight:600; font-size:10px; letter-spacing:0.22em;
+  text-transform:uppercase; color:var(--sello-fuerte);
+  background:rgba(150,113,42,0.08); padding:4px 10px;
+}
+#caton-landing .pq-card p { color:var(--tinta-70); font-size:14.5px; line-height:1.7; }
+#caton-landing .pq-features { margin-top:20px; display:flex; flex-direction:column; gap:8px; }
+#caton-landing .pq-feature { display:flex; gap:10px; font-size:13.5px; color:var(--tinta-70); }
+#caton-landing .pq-feature::before { content:'·'; color:var(--sello); flex-shrink:0; font-size:18px; line-height:1.2; }
+@media (max-width:1000px) { #caton-landing .pq-grid { grid-template-columns:1fr; } }
+
 /* ---------- SECTIONS ---------- */
 #caton-landing section { padding:110px 64px; position:relative; }
 #caton-landing .section-label {
@@ -690,6 +724,7 @@ export function CatonLandingPage() {
       <nav>
         <div className="logo">CAT<span className="o-gold">Ó</span>N</div>
         <div className="nav-right">
+          <a className="nav-link" href="#para-quien">Para quién</a>
           <a className="nav-link" href="#pipeline">Cómo funciona</a>
           <a className="nav-link" href="#capacidades">Capacidades</a>
           <button className="btn-ingresar" onClick={() => navigate('/app')}>Ingresar</button>
@@ -699,12 +734,12 @@ export function CatonLandingPage() {
       {/* ── HERO ── */}
       <div className="hero">
         <div className="hero-copy">
-          <div className="eyebrow"><span className="dot"></span> Control ciudadano de contratación pública</div>
+          <div className="eyebrow"><span className="dot"></span> Control fiscal · Colombia</div>
           <h1 className="roman">Sigue la plata.<br /><span className="gold">Hasta el fallo judicial.</span></h1>
-          <p className="hero-sub">CATÓN conecta 65 millones de contratos SECOP en un grafo de investigación: contratistas, representantes legales, empresas fachada. Detecta el vínculo oculto, redacta la denuncia y da seguimiento hasta el fallo.</p>
+          <p className="hero-sub">CATÓN conecta 65 millones de contratos SECOP en un grafo de investigación: contratistas, representantes legales, empresas fachada. Detecta el vínculo oculto, redacta el hallazgo y da seguimiento hasta el fallo. Para veedores ciudadanos, contralorías y auditores.</p>
           <div className="hero-ctas">
             <button className="btn-primary" onClick={() => navigate('/app')}>Comenzar ahora</button>
-            <button className="btn-ghost">Solicitar demo</button>
+            <button className="btn-ghost" onClick={() => document.getElementById('para-quien')?.scrollIntoView({ behavior: 'smooth' })}>¿Para quién?</button>
           </div>
         </div>
 
@@ -795,12 +830,65 @@ export function CatonLandingPage() {
         <div className="ticker-track" id="caton-ticker">
           <span><b>65.4M</b> contratos accesibles</span>
           <span><b>+2.400</b> entidades públicas</span>
-          <span><b>$300 billones COP</b> bajo vigilancia ciudadana</span>
+          <span><b>$300 billones COP</b> bajo vigilancia</span>
           <span><b>24/7</b> seguimiento en Rama Judicial</span>
+          <span><b>Veeduría ciudadana</b> · Contraloría · Auditoría General</span>
           <span><b>0</b> abogados requeridos para radicar</span>
           <span><b>Ley 1755/2015</b> · plazos con festivos colombianos</span>
+          <span><b>Control fiscal</b> determinista · sin alucinaciones</span>
         </div>
       </div>
+
+      {/* ── PARA QUIÉN ── */}
+      <section id="para-quien" style={{ background:'var(--papel-2)', borderTop:'1px solid var(--linea)', borderBottom:'1px solid var(--linea)' }}>
+        <div className="section-label reveal">Para quién</div>
+        <h2 className="roman reveal">La misma herramienta.<br />Tres tipos de auditor.</h2>
+        <p className="section-sub reveal">CATÓN fue diseñado para que cualquier persona con autoridad o responsabilidad sobre el gasto público lo sienta propio.</p>
+
+        <div className="pq-grid reveal">
+          {/* Veedor ciudadano */}
+          <div className="pq-card" data-num="I">
+            <span className="pq-icon">🔍</span>
+            <span className="pq-tag">Veeduría ciudadana</span>
+            <h3>Veedor ciudadano</h3>
+            <p>Cualquier ciudadano puede ejercer control social sobre la contratación pública. CATÓN elimina la barrera técnica y jurídica.</p>
+            <div className="pq-features">
+              <div className="pq-feature">Denuncia lista para firmar en minutos</div>
+              <div className="pq-feature">Derecho de petición con trazabilidad</div>
+              <div className="pq-feature">Tutela automática si no hay respuesta</div>
+              <div className="pq-feature">Sin abogado requerido para radicar</div>
+            </div>
+          </div>
+
+          {/* Contraloría */}
+          <div className="pq-card" data-num="II">
+            <span className="pq-icon">🏛️</span>
+            <span className="pq-tag">Contraloría · Nacional · Departamental · Municipal</span>
+            <h3>Contraloría</h3>
+            <p>Para auditores y funcionarios de control fiscal que necesitan analizar grandes volúmenes de contratación con evidencia sólida.</p>
+            <div className="pq-features">
+              <div className="pq-feature">Grafo de investigación sobre 65M contratos</div>
+              <div className="pq-feature">Hallazgos con respaldo jurídico y referencia SECOP</div>
+              <div className="pq-feature">Expediente de auditoría por proceso</div>
+              <div className="pq-feature">Múltiples auditores bajo una misma organización</div>
+            </div>
+          </div>
+
+          {/* Auditoría General */}
+          <div className="pq-card" data-num="III">
+            <span className="pq-icon">⚖️</span>
+            <span className="pq-tag">Auditoría General de la Nación</span>
+            <h3>Auditoría General</h3>
+            <p>Instrumento de apoyo para la vigilancia de la gestión fiscal del Estado y el seguimiento a procesos de responsabilidad.</p>
+            <div className="pq-features">
+              <div className="pq-feature">Seguimiento a Rama Judicial 24/7</div>
+              <div className="pq-feature">Informe de hallazgos descargable por proceso</div>
+              <div className="pq-feature">Plazos procesales con festivos colombianos</div>
+              <div className="pq-feature">Consecutivo y trazabilidad de cada actuación</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── MÉTRICAS ── */}
       <section>
@@ -942,10 +1030,11 @@ export function CatonLandingPage() {
       {/* ── CTA FINAL ── */}
       <section className="final">
         <div className="section-label reveal" style={{ justifyContent:'center' }}>Empieza hoy</div>
-        <h2 className="roman reveal">El Estado firma.<br/><span style={{ color:'var(--sello)' }}>Tú auditas.</span></h2>
-        <div className="hero-ctas reveal" style={{ marginTop:44 }}>
+        <h2 className="roman reveal">El Estado contrata.<br/><span style={{ color:'var(--sello)' }}>Tú fiscalizas.</span></h2>
+        <p className="section-sub reveal" style={{ margin:'24px auto 0', textAlign:'center' }}>Para el veedor que quiere actuar, el contralor que necesita evidencia y el auditor que da seguimiento hasta el fallo.</p>
+        <div className="hero-ctas reveal" style={{ marginTop:44, justifyContent:'center' }}>
           <button className="btn-primary" onClick={() => navigate('/app')}>Crear cuenta gratuita</button>
-          <button className="btn-ghost">Solicitar demo</button>
+          <button className="btn-ghost" onClick={() => window.location.href = 'mailto:caton@numa.la?subject=Demo institucional CATÓN'}>Solicitar demo institucional</button>
         </div>
       </section>
 
