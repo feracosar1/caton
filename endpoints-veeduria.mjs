@@ -1083,6 +1083,18 @@ export function montarVeeduria(app, { auth, supabase }) {
   // Estas tablas tienen RLS sin policy de INSERT para authenticated — se accede
   // desde el backend (service_role) para evitar el 403 en el frontend.
 
+  // GET /veeduria/admin/orgs — listar todas las organizaciones (service_role bypasa RLS)
+  app.get('/veeduria/admin/orgs', auth, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('veedor_orgs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      ok(res, { orgs: data ?? [] });
+    } catch (e) { err(res, e); }
+  });
+
   // POST /veeduria/admin/orgs — crear organización
   app.post('/veeduria/admin/orgs', auth, async (req, res) => {
     const { nombre, tipo, ciudad, pipeline_tipo, plan_tipo } = req.body ?? {};
@@ -1495,5 +1507,449 @@ export function montarVeeduria(app, { auth, supabase }) {
     } catch (e) { err(res, e); }
   });
 
-  console.log('[VEEDOR] endpoints de veeduría montados: /veeduria/{buscar,buscar-async,grafo,auditar,expedientes,denuncia,enviar,requerimientos,notas,tutela,analizar-respuesta,fallo,cerrar,cronograma,config/smtp,contacto,leads}');
+  // ── EQUIPO (membresías de la org del usuario autenticado) ──────────────────
+
+  // GET /veeduria/equipo?org_id=xxx — listar miembros de la org
+  app.get('/veeduria/equipo', auth, async (req, res) => {
+    const { org_id } = req.query;
+    if (!org_id) return err(res, new Error('org_id es requerido'));
+    try {
+      const { data, error } = await supabase
+        .from('veedor_memberships')
+        .select('id, user_id, rol, estado, nombre, activo, created_at')
+        .eq('org_id', org_id)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+
+      // Enriquecer con email desde Supabase Auth (service_role)
+      const CATON_URL   = process.env.SUPABASE_URL;
+      const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const miembros = await Promise.all((data ?? []).map(async m => {
+        try {
+          const r = await fetch(`${CATON_URL}/auth/v1/admin/users/${m.user_id}`, {
+            headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+          });
+          if (r.ok) {
+            const u = await r.json();
+            return { ...m, email: u.email ?? null };
+          }
+        } catch { /* sin email */ }
+        return { ...m, email: null };
+      }));
+
+      ok(res, { miembros });
+    } catch (e) { err(res, e); }
+  });
+
+  // PATCH /veeduria/equipo/:id — cambiar rol o desactivar un miembro
+  app.patch('/veeduria/equipo/:id', auth, async (req, res) => {
+    const { org_id } = req.body ?? {};
+    if (!org_id) return err(res, new Error('org_id es requerido'));
+    const ROLES_VALIDOS = ['admin', 'auditor', 'coordinador', 'visualizador', 'director'];
+    const updates = {};
+    if (req.body.rol !== undefined && ROLES_VALIDOS.includes(req.body.rol)) updates.rol = req.body.rol;
+    if (req.body.activo !== undefined) updates.activo = Boolean(req.body.activo);
+    if (Object.keys(updates).length === 0) return err(res, new Error('Nada que actualizar'));
+    try {
+      const { data, error } = await supabase
+        .from('veedor_memberships')
+        .update(updates)
+        .eq('id', req.params.id)
+        .eq('org_id', org_id)
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, data);
+    } catch (e) { err(res, e); }
+  });
+
+  // POST /veeduria/admin/invitar — crear usuario en Supabase Auth + vincularlo a veedor_memberships
+  app.post('/veeduria/admin/invitar', auth, async (req, res) => {
+    const { email, nombre, org_id, rol } = req.body ?? {};
+    if (!email || !org_id) return err(res, new Error('email y org_id son requeridos'));
+    const ROLES_VALIDOS = ['admin', 'auditor', 'coordinador', 'visualizador', 'director'];
+    const rolFinal = ROLES_VALIDOS.includes(rol) ? rol : 'auditor';
+    const CATON_URL  = process.env.SUPABASE_URL;
+    const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    try {
+      // 1. Crear usuario en Supabase Auth (email ya confirmado)
+      const createRes = await fetch(`${CATON_URL}/auth/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          'apikey': SERVICE_KEY,
+          'Authorization': `Bearer ${SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          email_confirm: true,
+          user_metadata: { nombre: nombre ? String(nombre).trim() : '' },
+        }),
+      });
+      const createData = await createRes.json();
+      let userId = createData?.id;
+
+      // Si ya existe, buscarlo por email
+      if (!userId) {
+        const listRes = await fetch(`${CATON_URL}/auth/v1/admin/users?page=1&per_page=100`, {
+          headers: { 'apikey': SERVICE_KEY, 'Authorization': `Bearer ${SERVICE_KEY}` },
+        });
+        const listData = await listRes.json();
+        const found = (listData?.users ?? []).find(u => u.email?.toLowerCase() === email.trim().toLowerCase());
+        userId = found?.id;
+      }
+      if (!userId) throw new Error(createData?.msg ?? createData?.message ?? 'No se pudo crear el usuario');
+
+      // 2. Upsert en veedor_memberships
+      const { error: memErr } = await supabase
+        .from('veedor_memberships')
+        .upsert({ user_id: userId, org_id, rol: rolFinal, activo: true, estado: 'activo', nombre: nombre ? String(nombre).trim() : null }, { onConflict: 'user_id,org_id' });
+      if (memErr) throw new Error(memErr.message);
+
+      // 3. Generar magic link
+      const linkRes = await fetch(`${CATON_URL}/auth/v1/admin/generate_link`, {
+        method: 'POST',
+        headers: {
+          'apikey': SERVICE_KEY,
+          'Authorization': `Bearer ${SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'magiclink', email: email.trim().toLowerCase() }),
+      });
+      const linkData = await linkRes.json();
+      const magicLink = linkData?.action_link;
+
+      // 4. Enviar correo via Resend si está configurado
+      const RESEND_KEY = process.env.RESEND_API_KEY;
+      if (RESEND_KEY && magicLink) {
+        const { data: orgData } = await supabase.from('veedor_orgs').select('nombre').eq('id', org_id).single();
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'CATÓN <no-reply@caton.la>',
+            to: [email.trim()],
+            subject: `Invitación a CATÓN — ${orgData?.nombre ?? 'Veeduría'}`,
+            html: `<p>Hola${nombre ? ' ' + nombre : ''},</p>
+<p>Has sido invitado a <strong>${orgData?.nombre ?? 'una veeduría'}</strong> en la plataforma CATÓN con el rol de <strong>${rolFinal}</strong>.</p>
+<p><a href="${magicLink}" style="background:#0F3D2E;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;">Acceder a CATÓN</a></p>
+<p style="color:#666;font-size:12px;">Este enlace expira en 24 horas.</p>`,
+          }),
+        });
+      }
+
+      ok(res, { ok: true, user_id: userId, magic_link: magicLink ?? null });
+    } catch (e) { err(res, e); }
+  });
+
+  // GET /veeduria/admin/panel-stats?org_id=xxx — estadísticas para el panel de control
+  app.get('/veeduria/admin/panel-stats', auth, async (req, res) => {
+    const { org_id } = req.query;
+    if (!org_id) return err(res, new Error('org_id es requerido'));
+    try {
+      // Consultas en paralelo
+      const [expResult, reqResult, actResult, memResult, hallResult] = await Promise.allSettled([
+        // 1. Expedientes por estado
+        supabase.from('veeduria_expedientes').select('estado').eq('org_id', org_id),
+        // 2. Requerimientos
+        supabase.from('veedor_requerimientos').select('estado, fecha_vencimiento, fecha_respuesta').eq('org_id', org_id),
+        // 3. Actuaciones recientes
+        supabase.from('veeduria_actuaciones')
+          .select('id, tipo, descripcion, created_at, expediente_id')
+          .eq('org_id', org_id)
+          .order('created_at', { ascending: false })
+          .limit(8),
+        // 4. Miembros del equipo
+        supabase.from('veedor_memberships').select('rol, nombre, activo').eq('org_id', org_id).eq('activo', true),
+        // 5. Hallazgos recientes
+        supabase.from('veeduria_hallazgos')
+          .select('id, tipo, severidad, descripcion, created_at, expediente_id')
+          .eq('org_id', org_id)
+          .order('created_at', { ascending: false })
+          .limit(6),
+      ]);
+
+      // Expedientes por estado
+      const expData = expResult.status === 'fulfilled' ? (expResult.value.data ?? []) : [];
+      const expedientes_por_estado = {};
+      for (const e of expData) {
+        expedientes_por_estado[e.estado] = (expedientes_por_estado[e.estado] ?? 0) + 1;
+      }
+
+      // Requerimientos
+      const reqData = reqResult.status === 'fulfilled' ? (reqResult.value.data ?? []) : [];
+      const ahora = new Date();
+      const requerimientos = {
+        total: reqData.length,
+        enviados: reqData.filter(r => r.estado === 'enviado').length,
+        esperando: reqData.filter(r => r.estado === 'esperando_respuesta').length,
+        respondidos: reqData.filter(r => r.estado === 'respondido').length,
+        vencidos: reqData.filter(r => {
+          if (r.estado !== 'enviado' && r.estado !== 'esperando_respuesta') return false;
+          if (!r.fecha_vencimiento) return false;
+          return new Date(r.fecha_vencimiento) < ahora;
+        }).length,
+      };
+
+      // Actuaciones
+      const actuaciones = actResult.status === 'fulfilled' ? (actResult.value.data ?? []) : [];
+
+      // Miembros
+      const memData = memResult.status === 'fulfilled' ? (memResult.value.data ?? []) : [];
+      const equipo_por_rol = {};
+      for (const m of memData) {
+        equipo_por_rol[m.rol] = (equipo_por_rol[m.rol] ?? 0) + 1;
+      }
+
+      // Hallazgos
+      const hallazgos = hallResult.status === 'fulfilled' ? (hallResult.value.data ?? []) : [];
+
+      ok(res, {
+        total_expedientes: expData.length,
+        expedientes_por_estado,
+        requerimientos,
+        actuaciones_recientes: actuaciones,
+        hallazgos_recientes: hallazgos,
+        equipo: memData,
+        equipo_por_rol,
+        total_miembros: memData.length,
+      });
+    } catch (e) { err(res, e); }
+  });
+
+  // POST /veeduria/expediente/:id/importar-secop
+  // Importa el cronograma oficial del proceso SECOP a veedor_cronograma.
+  // Toma las fechas precontractuales del proceso (publicación, observaciones, cierre,
+  // adjudicación, firma, inicio) y crea hitos. Si el proceso ya está en secop_procesos
+  // lo lee de ahí; si no, lo busca en la API de datos.gov.co.
+  app.post('/veeduria/expediente/:id/importar-secop', auth, async (req, res) => {
+    const { id } = req.params;
+    const { org_id } = req.body;
+
+    try {
+      // 1. Obtener el expediente
+      const { data: exp, error: expErr } = await supabase
+        .from('veeduria_expedientes')
+        .select('id, id_contrato, id_proceso, entidad, veedor_org_id')
+        .eq('id', id)
+        .single();
+      if (expErr || !exp) throw new Error(expErr?.message || 'Expediente no encontrado');
+
+      const idProceso = exp.id_proceso || exp.id_contrato;
+      if (!idProceso) throw new Error('El expediente no tiene un id_proceso vinculado');
+
+      // 2. Buscar el proceso (primero en DB local, luego en Socrata)
+      let raw = null;
+      const { data: localProc } = await supabase
+        .from('secop_procesos')
+        .select('*')
+        .eq('id', idProceso)
+        .maybeSingle();
+
+      if (localProc) {
+        raw = localProc.raw || localProc;
+      } else {
+        // Fallback: consultar Socrata directo
+        const EP_PROCESOS_LOCAL = 'https://www.datos.gov.co/resource/p6dx-8zbt.json';
+        const params = new URLSearchParams({
+          '$limit': '5',
+          '$where': `id_del_proceso = '${idProceso}'`,
+        });
+        const secopRes = await fetch(`${EP_PROCESOS_LOCAL}?${params}`, {
+          headers: { 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!secopRes.ok) throw new Error(`SECOP API error ${secopRes.status}`);
+        const rows = await secopRes.json();
+        if (!rows || rows.length === 0) throw new Error(`Proceso "${idProceso}" no encontrado en SECOP`);
+        raw = rows[0];
+      }
+
+      // 3. Extraer fechas del proceso precontractual
+      // Las fechas de SECOP pueden venir en distintos campos según el dataset
+      const fechas = {
+        publicacion:  raw.fecha_de_publicacion_del || raw.fecha_publicacion || null,
+        observaciones_inicio: raw.fecha_de_inicio_de_respuesta || raw.fecha_inicio_observaciones || null,
+        observaciones_fin: raw.fecha_fin_observaciones || null,
+        adendas:      raw.fecha_adenda || null,
+        audiencia:    raw.fecha_audiencia || raw.fecha_de_audiencia || null,
+        cierre:       raw.fecha_de_recepcion_de || raw.fecha_de_apertura_de_respuesta || raw.fecha_limite_de_recepcion || raw.fecha_limite || null,
+        evaluacion_inicio: raw.fecha_inicio_evaluacion || null,
+        evaluacion_fin: raw.fecha_fin_evaluacion || null,
+        adjudicacion: raw.fecha_adjudicacion || raw.fecha_de_adjudicacion || null,
+        firma:        raw.fecha_de_firma || raw.fecha_firma || null,
+        inicio_ejecucion: raw.fecha_de_inicio_del_contrato || raw.fecha_inicio || null,
+        fin_ejecucion: raw.fecha_de_fin_del_contrato || raw.fecha_fin || null,
+      };
+
+      // 4. Construir hitos — solo los que tienen fecha
+      const TIPOS_HITO = [
+        { tipo: 'publicacion_pliego',      label: 'Publicación del pliego',               key: 'publicacion' },
+        { tipo: 'observaciones_inicio',    label: 'Inicio período de observaciones',       key: 'observaciones_inicio' },
+        { tipo: 'observaciones_fin',       label: 'Fin período de observaciones',          key: 'observaciones_fin' },
+        { tipo: 'adendas',                 label: 'Adenda / modificación del pliego',      key: 'adendas' },
+        { tipo: 'audiencia',               label: 'Audiencia de aclaraciones',             key: 'audiencia' },
+        { tipo: 'cierre_recepcion_ofertas',label: 'Cierre recepción de ofertas',           key: 'cierre' },
+        { tipo: 'evaluacion_inicio',       label: 'Inicio evaluación de propuestas',       key: 'evaluacion_inicio' },
+        { tipo: 'evaluacion_fin',          label: 'Fin evaluación de propuestas',          key: 'evaluacion_fin' },
+        { tipo: 'adjudicacion',            label: 'Adjudicación del contrato',             key: 'adjudicacion' },
+        { tipo: 'firma_contrato',          label: 'Firma del contrato',                    key: 'firma' },
+        { tipo: 'inicio_ejecucion',        label: 'Inicio de ejecución',                   key: 'inicio_ejecucion' },
+        { tipo: 'fin_ejecucion',           label: 'Fin de ejecución (vencimiento)',        key: 'fin_ejecucion' },
+      ];
+
+      const ahora = new Date();
+      const hitosACrear = [];
+
+      for (const h of TIPOS_HITO) {
+        const fecha = fechas[h.key];
+        if (!fecha) continue;
+        const fechaObj = new Date(fecha);
+        const pasado = fechaObj < ahora;
+        hitosACrear.push({
+          id_proceso: idProceso,
+          tipo: h.tipo,
+          nombre: h.label,
+          fecha_inicio: fecha,
+          fecha_fin: null,
+          estado: pasado ? 'completado' : 'pendiente',
+          verificado: false,
+          alerta_activa: false,
+          notas: null,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      if (hitosACrear.length === 0) {
+        return ok(res, { ok: true, hitos: [], mensaje: 'El proceso no tiene fechas precontractuales disponibles en SECOP' });
+      }
+
+      // 5. Borrar hitos existentes para este proceso y recriar
+      // (import completo: las fechas SECOP reemplazan las anteriores)
+      await supabase
+        .from('veedor_cronograma')
+        .delete()
+        .eq('id_proceso', idProceso);
+
+      const { data: hitosInsertados, error: insertErr } = await supabase
+        .from('veedor_cronograma')
+        .insert(hitosACrear)
+        .select('*');
+
+      if (insertErr) throw new Error(insertErr.message);
+
+      // 6. Guardar id_proceso en el expediente si no lo tenía
+      if (!exp.id_proceso && exp.id_contrato) {
+        await supabase
+          .from('veeduria_expedientes')
+          .update({ id_proceso: idProceso })
+          .eq('id', id);
+      }
+
+      ok(res, {
+        ok: true,
+        hitos: hitosInsertados ?? hitosACrear,
+        proceso: {
+          id: idProceso,
+          entidad: raw.entidad || raw.nombre_entidad || exp.entidad,
+          modalidad: raw.modalidad_de_contratacion || raw.modalidad || null,
+          estado: raw.estado_del_procedimiento || raw.estado || null,
+        },
+      });
+    } catch (e) { err(res, e); }
+  });
+
+  // GET /veeduria/admin/cronograma-org?org_id=xxx — plazos y fechas críticas de la org
+  app.get('/veeduria/admin/cronograma-org', auth, async (req, res) => {
+    const { org_id } = req.query;
+    if (!org_id) return err(res, new Error('org_id es requerido'));
+    try {
+      const [expResult, reqResult] = await Promise.allSettled([
+        // Expedientes con sus fechas
+        supabase.from('veeduria_expedientes')
+          .select('id, id_contrato, id_proceso, entidad, estado, created_at, updated_at, asignado_a')
+          .eq('veedor_org_id', org_id)
+          .order('updated_at', { ascending: false })
+          .limit(100),
+        // Requerimientos con fechas de vencimiento
+        supabase.from('veedor_requerimientos')
+          .select('id, expediente_id, tipo, estado, fecha_envio, fecha_vencimiento, fecha_respuesta')
+          .eq('org_id', org_id)
+          .order('fecha_vencimiento', { ascending: true, nullsLast: false }),
+      ]);
+
+      const expedientes = expResult.status === 'fulfilled' ? (expResult.value.data ?? []) : [];
+      const requerimientos = reqResult.status === 'fulfilled' ? (reqResult.value.data ?? []) : [];
+
+      // Mapa expediente_id → requerimientos
+      const reqPorExpediente = {};
+      for (const r of requerimientos) {
+        if (!reqPorExpediente[r.expediente_id]) reqPorExpediente[r.expediente_id] = [];
+        reqPorExpediente[r.expediente_id].push(r);
+      }
+
+      const ahora = new Date();
+      const eventos = [];
+
+      // Eventos desde expedientes
+      for (const exp of expedientes) {
+        const reqs = reqPorExpediente[exp.id] ?? [];
+        for (const r of reqs) {
+          if (r.fecha_vencimiento) {
+            const venc = new Date(r.fecha_vencimiento);
+            const diasRestantes = Math.ceil((venc - ahora) / (1000 * 60 * 60 * 24));
+            eventos.push({
+              tipo: 'vencimiento_dp',
+              expediente_id: exp.id,
+              entidad: exp.entidad,
+              estado_expediente: exp.estado,
+              requerimiento_id: r.id,
+              requerimiento_tipo: r.tipo ?? 'derecho_peticion',
+              requerimiento_estado: r.estado,
+              fecha: r.fecha_vencimiento,
+              fecha_envio: r.fecha_envio,
+              dias_restantes: diasRestantes,
+              vencido: diasRestantes < 0 && r.estado !== 'respondido',
+            });
+          }
+        }
+      }
+
+      // Ordenar: vencidos primero (por urgencia), luego próximos por fecha
+      eventos.sort((a, b) => {
+        if (a.vencido && !b.vencido) return -1;
+        if (!a.vencido && b.vencido) return 1;
+        return new Date(a.fecha) - new Date(b.fecha);
+      });
+
+      // Enriquecer requerimientos con dias_restantes
+      const requerimientosEnriquecidos = requerimientos.map(r => {
+        const diasRestantes = r.fecha_vencimiento
+          ? Math.ceil((new Date(r.fecha_vencimiento) - ahora) / (1000 * 60 * 60 * 24))
+          : 9999;
+        return {
+          ...r,
+          dias_restantes: diasRestantes,
+          vencido: r.fecha_vencimiento ? (diasRestantes < 0 && r.estado !== 'respondido') : false,
+        };
+      });
+
+      const vencidos = requerimientosEnriquecidos.filter(r => r.vencido);
+      const proximos7 = requerimientosEnriquecidos.filter(r => !r.vencido && r.dias_restantes <= 7);
+      const proximos30 = requerimientosEnriquecidos.filter(r => !r.vencido && r.dias_restantes <= 30);
+
+      ok(res, {
+        expedientes,
+        requerimientos: requerimientosEnriquecidos,
+        eventos,
+        por_estado: {
+          vencidos: vencidos.length,
+          proximos_7d: proximos7.length,
+          proximos_30d: proximos30.length,
+        },
+      });
+    } catch (e) { err(res, e); }
+  });
+
+  console.log('[VEEDOR] endpoints de veeduría montados: /veeduria/{buscar,buscar-async,grafo,auditar,expedientes,denuncia,enviar,requerimientos,notas,tutela,analizar-respuesta,fallo,cerrar,cronograma,expediente/:id/importar-secop,config/smtp,contacto,leads,admin/cronograma-org,admin/invitar}');
 }
