@@ -4,45 +4,33 @@ Este directorio es el proyecto **Veedor / Catón** — herramienta de veeduría 
 
 ---
 
-## ⛔ PROHIBICIÓN ABSOLUTA — NUNCA deployar a Netlify desde este directorio
+## Deploy del frontend de Catón → Netlify vía git
 
-**El CLI de Netlify en esta máquina está vinculado al sitio `numa180` (numa.la = PRODUCCIÓN de NUMA).**
+**Catón tiene su propio sitio en Netlify**, conectado al repo `feracosar1/caton` en GitHub.
 
-Si corres `netlify deploy` desde este directorio, **reemplazas la app de producción de NUMA con el frontend de Catón**. Eso es un incidente crítico.
-
-### NUNCA hacer:
+### ✅ La forma correcta de deployar:
 ```bash
-netlify deploy          # ← NUNCA
-netlify deploy --prod   # ← NUNCA
-netlify link            # ← NUNCA sin confirmar el site correcto
-netlify build           # ← NUNCA (buildea para Netlify)
+git add <archivos>
+git commit -m "..."
+git push origin main   # ← Netlify detecta el push y buildea automáticamente
 ```
 
-El archivo `netlify.toml` en este directorio existe solo para configurar el proxy `/api/veedor/*` — no es para deployar.
+### ⛔ NUNCA usar el CLI de Netlify manualmente:
+```bash
+netlify deploy          # ← PROHIBIDO — el CLI local puede estar vinculado a NUMA
+netlify deploy --prod   # ← PROHIBIDO
+netlify link            # ← PROHIBIDO sin verificar el site_id
+```
+
+**Por qué:** el CLI de Netlify en esta máquina podría estar vinculado a `numa180` (numa.la = producción de NUMA). Ejecutar `netlify deploy` manualmente desde aquí puede reemplazar NUMA con Catón — eso ya pasó y es un incidente crítico. El deploy **siempre** va por git push.
 
 ---
 
-## Deploy del frontend de Catón
-
-El frontend de Catón se sirve desde el **Azure VM** (no Netlify):
-
-```bash
-# 1. Build local
-cd /Users/fernandoaraujo/numa-sesion/veedor/web
-npm run build
-
-# 2. Copiar a Azure VM
-scp -i "/Users/fernandoaraujo/Downloads/numa-scraper_key.pem" \
-  -r dist/* azureuser@20.84.48.138:~/caton/public/
-```
-
-El VM sirve los archivos estáticos con Express o Nginx desde `~/caton/public/`.
+## Deploy del backend de Catón (Azure VM)
 
 ---
 
-## Deploy del backend de Catón
-
-Usar el script existente:
+El backend (Node.js/Express) corre en Azure VM. Usar el script existente:
 
 ```bash
 cd /Users/fernandoaraujo/numa-sesion/veedor
