@@ -44,7 +44,8 @@ function authHeaders(token?: string): HeadersInit {
 
 // ── GoTrue — Auth endpoints ───────────────────────────────────────────────────
 
-/** Obtiene el usuario autenticado actual. Retorna null si el token es inválido o no hay sesión. */
+/** Obtiene el usuario autenticado actual. Retorna null si el token es inválido o no hay sesión.
+ *  Si el token expiró (401/403), intenta refresh automático antes de rendirse. */
 export async function catonGetUser(): Promise<Record<string, unknown> | null> {
   const token = catonToken()
   if (!token) return null
@@ -55,6 +56,19 @@ export async function catonGetUser(): Promise<Record<string, unknown> | null> {
         'Authorization': `Bearer ${token}`,
       },
     })
+    // Token expirado → intentar refresh y reintentar
+    if (res.status === 401 || res.status === 403) {
+      const refreshed = await catonRefreshToken()
+      if (!refreshed) return null
+      const res2 = await fetch(`${CATON_URL}/auth/v1/user`, {
+        headers: {
+          'apikey': CATON_ANON,
+          'Authorization': `Bearer ${catonToken()}`,
+        },
+      })
+      if (!res2.ok) return null
+      return await res2.json() as Record<string, unknown>
+    }
     if (!res.ok) return null
     return await res.json() as Record<string, unknown>
   } catch {
@@ -134,11 +148,21 @@ export async function catonRefreshToken(): Promise<boolean> {
 
 // ── REST — PostgREST endpoints ────────────────────────────────────────────────
 
+/** Intenta refresh si la respuesta REST es 401. Retorna la nueva respuesta o la original. */
+async function withRefresh(fetchFn: () => Promise<Response>): Promise<Response> {
+  const res = await fetchFn()
+  if (res.status === 401 || res.status === 403) {
+    const refreshed = await catonRefreshToken()
+    if (refreshed) return fetchFn()
+  }
+  return res
+}
+
 /** GET a una tabla o vista PostgREST. Incluye el token de autenticación. */
 export async function catonGet(path: string): Promise<unknown> {
-  const res = await fetch(`${CATON_URL}/rest/v1/${path}`, {
+  const res = await withRefresh(() => fetch(`${CATON_URL}/rest/v1/${path}`, {
     headers: authHeaders(),
-  })
+  }))
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as Record<string, unknown>
     throw new Error((err.message as string) || `Error ${res.status}`)
@@ -151,14 +175,12 @@ export async function catonGet(path: string): Promise<unknown> {
  * Usa Prefer: return=representation para que la DB devuelva la fila creada.
  */
 export async function catonPost(path: string, body: Record<string, unknown>): Promise<unknown> {
-  const res = await fetch(`${CATON_URL}/rest/v1/${path}`, {
+  const bodyStr = JSON.stringify(body)
+  const res = await withRefresh(() => fetch(`${CATON_URL}/rest/v1/${path}`, {
     method: 'POST',
-    headers: {
-      ...authHeaders(),
-      'Prefer': 'return=representation',
-    },
-    body: JSON.stringify(body),
-  })
+    headers: { ...authHeaders(), 'Prefer': 'return=representation' },
+    body: bodyStr,
+  }))
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as Record<string, unknown>
     throw new Error((err.message as string) || `Error ${res.status}`)
@@ -175,14 +197,12 @@ export async function catonPatch(
   query: string,
   body: Record<string, unknown>,
 ): Promise<unknown> {
-  const res = await fetch(`${CATON_URL}/rest/v1/${path}?${query}`, {
+  const bodyStr = JSON.stringify(body)
+  const res = await withRefresh(() => fetch(`${CATON_URL}/rest/v1/${path}?${query}`, {
     method: 'PATCH',
-    headers: {
-      ...authHeaders(),
-      'Prefer': 'return=representation',
-    },
-    body: JSON.stringify(body),
-  })
+    headers: { ...authHeaders(), 'Prefer': 'return=representation' },
+    body: bodyStr,
+  }))
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as Record<string, unknown>
     throw new Error((err.message as string) || `Error ${res.status}`)
