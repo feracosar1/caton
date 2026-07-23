@@ -894,11 +894,10 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
   const [asyncOk, setAsyncOk]         = useState('')
   const [jobs, setJobs]               = useState<api.JobAsync[]>([])
 
-  // Carga escaneos recientes cuando el token esté listo
+  // Carga escaneos recientes al montar (token ya está seteado en el padre síncronamente)
   useEffect(() => {
-    if (!token) return
     api.listarJobsAsync().then(r => setJobs(r.jobs ?? [])).catch(() => {})
-  }, [token])
+  }, [])
 
   const lanzarAsync = async () => {
     if (!emailAsync.trim()) return
