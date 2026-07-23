@@ -80,7 +80,7 @@ export function CatonConfigPage({ user }: Props) {
   const canEdit = user.rol === 'director' || user.rol === 'coordinador' || user.esAdmin
 
   const load = useCallback(async () => {
-    if (!user.orgId) return
+    if (!user.orgId) { setLoading(false); return }
     setLoading(true); setError('')
     try {
       const [orgRows, cfgRows] = await Promise.all([
@@ -118,9 +118,20 @@ export function CatonConfigPage({ user }: Props) {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '48px 40px', color: INK55 }}>
-        <Loader2 size={18} className="animate-spin" color={TINTA} />
-        Cargando configuración…
+      <div style={{ padding: '48px 40px 32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+        <div style={{ position: 'relative', width: 56, height: 56 }}>
+          <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: `3px solid ${TINTA}`, opacity: 0.08 }} />
+          <div style={{
+            position: 'absolute', inset: 0, borderRadius: '50%',
+            border: `3px solid transparent`, borderTopColor: ORO, borderRightColor: ORO,
+            animation: 'spin 1s linear infinite',
+          }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Settings size={20} color={TINTA} style={{ opacity: 0.6 }} />
+          </div>
+        </div>
+        <span style={{ fontSize: 13, fontWeight: 600, color: INK55 }}>Cargando configuración…</span>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     )
   }
