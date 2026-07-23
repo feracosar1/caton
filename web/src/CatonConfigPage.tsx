@@ -604,6 +604,7 @@ function TabCorreo({ orgId, smtp, canEdit, onSaved }: {
 
   async function save(e: FormEvent) {
     e.preventDefault()
+    if (!orgId) { setMsg('No hay organización activa — contacta al administrador de CATÓN'); return }
     setSaving(true); setMsg('')
     try {
       const body: Record<string, unknown> = {
