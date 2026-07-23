@@ -72,6 +72,10 @@ interface OrgRow {
   email_from_address:  string | null
   resend_domain_id:    string | null
   dominio_verificado:  boolean
+  // Migración 004
+  contratos_mes:       number | null
+  nota_cuenta:         string | null
+  ai_provider:         string | null
 }
 
 interface EntidadRow {
@@ -431,6 +435,10 @@ function OrgConfigPanel({ org, onUpdated }: { org: OrgRow; onUpdated: (o: OrgRow
   const [carruseles,     setCarruseles]     = useState(org.tiene_carruseles)
   const [planTipo,       setPlanTipo]       = useState(org.plan_tipo)
   const [multiplier,     setMultiplier]     = useState(String(org.token_multiplier ?? 2))
+  const [contratosMes,   setContratosMes]   = useState(String(org.contratos_mes ?? ''))
+  const [notaCuenta,     setNotaCuenta]     = useState(org.nota_cuenta ?? '')
+  const [aiProvider,     setAiProvider]     = useState(org.ai_provider ?? 'anthropic')
+  const [aiKey,          setAiKey]          = useState('')  // nunca se carga del servidor
   // Dominio
   const [dominio,        setDominio]        = useState(org.dominio_propio ?? '')
   const [fromName,       setFromName]       = useState(org.email_from_name ?? '')
@@ -449,6 +457,10 @@ function OrgConfigPanel({ org, onUpdated }: { org: OrgRow; onUpdated: (o: OrgRow
       tiene_carruseles:    carruseles,
       plan_tipo:           planTipo,
       token_multiplier:    parseFloat(multiplier) || 2,
+      contratos_mes:       contratosMes ? parseInt(contratosMes) : null,
+      nota_cuenta:         notaCuenta.trim() || null,
+      ai_provider:         aiProvider,
+      ...(aiKey.trim() ? { ai_api_key_enc: aiKey.trim() } : {}),
       dominio_propio:      dominio.trim() || null,
       email_from_name:     fromName.trim() || null,
       email_from_address:  fromAddress.trim() || null,
@@ -554,6 +566,55 @@ function OrgConfigPanel({ org, onUpdated }: { org: OrgRow; onUpdated: (o: OrgRow
                 ×{multiplier} sobre el costo real. Ej: $100 → ${(parseFloat(multiplier||'2')*100).toFixed(0)} cobrado
               </p>
             </div>
+          )}
+          {planTipo === 'por_contrato' && (
+            <>
+              <div>
+                <label style={labelStyle}>Contratos autorizados / mes</label>
+                <input
+                  type="number" min="1"
+                  value={contratosMes} onChange={e => setContratosMes(e.target.value)}
+                  placeholder="Ej: 50"
+                  style={{ ...inputStyle, width: 120 }}
+                />
+                <p style={{ fontSize: 11, color: INK35, margin: '4px 0 0' }}>
+                  Límite mensual de contratos que puede auditar esta org.
+                </p>
+              </div>
+              <div>
+                <label style={labelStyle}>Nota de cuenta / facturación</label>
+                <textarea
+                  value={notaCuenta} onChange={e => setNotaCuenta(e.target.value)}
+                  placeholder="NIT, contacto de pago, condiciones pactadas…"
+                  rows={3}
+                  style={{ ...inputStyle, resize: 'vertical', fontFamily: 'inherit' }}
+                />
+              </div>
+            </>
+          )}
+          {planTipo === 'byok' && (
+            <>
+              <div>
+                <label style={labelStyle}>Proveedor de IA</label>
+                <select value={aiProvider} onChange={e => setAiProvider(e.target.value)} style={inputStyle}>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="openai">OpenAI (GPT)</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>API Key</label>
+                <input
+                  type="password"
+                  value={aiKey} onChange={e => setAiKey(e.target.value)}
+                  placeholder="sk-ant-... o sk-..."
+                  style={inputStyle}
+                  autoComplete="off"
+                />
+                <p style={{ fontSize: 11, color: INK35, margin: '4px 0 0' }}>
+                  {org.ai_api_key_enc ? '●●●●●● (llave ya guardada — ingresa una nueva para reemplazar)' : 'Sin llave guardada aún.'}
+                </p>
+              </div>
+            </>
           )}
         </div>
       </div>

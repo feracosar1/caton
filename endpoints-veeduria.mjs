@@ -1111,7 +1111,12 @@ export function montarVeeduria(app, { auth, supabase }) {
   // PATCH /veeduria/admin/orgs/:id — actualizar campos de la org
   app.patch('/veeduria/admin/orgs/:id', auth, async (req, res) => {
     const allowed = ['nombre', 'tipo', 'ciudad', 'pipeline_tipo', 'activa',
-                     'dominio', 'dominio_verificado', 'logo_url'];
+                     'dominio', 'dominio_verificado', 'logo_url',
+                     'plan_tipo', 'token_multiplier', 'tiene_radar', 'tiene_carruseles',
+                     'alcance_tipo', 'alcance_deptos', 'alcance_municipios',
+                     'dominio_propio', 'email_from_name', 'email_from_address',
+                     'resend_domain_id', 'contratos_mes', 'nota_cuenta',
+                     'ai_provider', 'ai_api_key_enc'];
     const updates = { updated_at: new Date().toISOString() };
     for (const k of allowed) {
       if (req.body[k] !== undefined) updates[k] = req.body[k];
