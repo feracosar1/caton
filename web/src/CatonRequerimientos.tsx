@@ -10,7 +10,7 @@
  *   - vencido       → rojo (fecha_limite_respuesta superada sin respuesta)
  */
 import { useState, useEffect } from 'react'
-import { Inbox, Clock, CheckCircle, AlertCircle, ExternalLink, RefreshCw, FileText } from 'lucide-react'
+import { Inbox, Clock, CheckCircle, AlertCircle, RefreshCw, FileText, Radar } from 'lucide-react'
 import { catonGet } from './catonClient.js'
 import type { CatonUser } from './useCatonAuth.js'
 
@@ -79,7 +79,7 @@ export function CatonRequerimientos({ user }: CatonRequerimientosProps) {
   const orgId = user.orgId
 
   async function cargar() {
-    if (!orgId) return
+    if (!orgId) { setLoading(false); return }
     setLoading(true)
     setError('')
     try {
@@ -195,14 +195,22 @@ export function CatonRequerimientos({ user }: CatonRequerimientosProps) {
         </div>
       )}
 
-      {/* Loading */}
+      {/* Loading — animación Catón */}
       {loading && (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', padding: '64px 0', gap: 12, color: INK55,
-        }}>
-          <RefreshCw size={24} className="animate-spin" style={{ color: DKGRN }} />
-          <span style={{ fontSize: 13 }}>Cargando requerimientos…</span>
+        <div style={{ padding: '48px 0 32px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <div style={{ position: 'relative', width: 56, height: 56 }}>
+            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: `3px solid ${INK}`, opacity: 0.08 }} />
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: '50%',
+              border: `3px solid transparent`, borderTopColor: GOLD, borderRightColor: GOLD,
+              animation: 'spin 1s linear infinite',
+            }} />
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Radar size={20} color={INK} style={{ opacity: 0.6 }} />
+            </div>
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 600, color: INK55 }}>Consultando requerimientos…</span>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
         </div>
       )}
 
