@@ -834,6 +834,7 @@ function FormNuevaOrg({ onCreated, onCancel }: { onCreated: (o: OrgRow) => void;
   const [tipo,     setTipo]     = useState('veeduria')
   const [ciudad,   setCiudad]   = useState('')
   const [pipeline, setPipeline] = useState('veeduria')
+  const [planTipo, setPlanTipo] = useState('mensual_tokens')
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState('')
 
@@ -853,6 +854,7 @@ function FormNuevaOrg({ onCreated, onCancel }: { onCreated: (o: OrgRow) => void;
         tipo,
         ciudad:        ciudad.trim() || null,
         pipeline_tipo: pipeline,
+        plan_tipo:     planTipo,
       }) as OrgRow
       onCreated(created)
     } catch (err) {
@@ -888,6 +890,14 @@ function FormNuevaOrg({ onCreated, onCancel }: { onCreated: (o: OrgRow) => void;
         <div style={{ flex: 1, minWidth: 130 }}>
           <label style={labelStyle}>Ciudad</label>
           <input value={ciudad} onChange={e => setCiudad(e.target.value)} placeholder="Montería" style={inputStyle} />
+        </div>
+        <div style={{ flex: 1, minWidth: 160 }}>
+          <label style={labelStyle}>Plan IA *</label>
+          <select value={planTipo} onChange={e => setPlanTipo(e.target.value)} style={inputStyle}>
+            <option value="mensual_tokens">Mensualidad + tokens</option>
+            <option value="por_contrato">Por contrato auditado</option>
+            <option value="byok">BYOK — llave propia</option>
+          </select>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button type="button" onClick={onCancel} style={btnSecondaryStyle}>Cancelar</button>

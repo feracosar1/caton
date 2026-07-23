@@ -1085,10 +1085,12 @@ export function montarVeeduria(app, { auth, supabase }) {
 
   // POST /veeduria/admin/orgs — crear organización
   app.post('/veeduria/admin/orgs', auth, async (req, res) => {
-    const { nombre, tipo, ciudad, pipeline_tipo } = req.body ?? {};
+    const { nombre, tipo, ciudad, pipeline_tipo, plan_tipo } = req.body ?? {};
     if (!nombre || !tipo) return err(res, new Error('nombre y tipo son requeridos'));
     const TIPOS_VALIDOS = ['veeduria', 'contraloria', 'ong', 'academia'];
     if (!TIPOS_VALIDOS.includes(tipo)) return err(res, new Error('tipo inválido'));
+    const PLANES_VALIDOS = ['mensual_tokens', 'por_contrato', 'byok'];
+    const planFinal = PLANES_VALIDOS.includes(plan_tipo) ? plan_tipo : 'mensual_tokens';
     try {
       const { data, error } = await supabase
         .from('veedor_orgs')
@@ -1097,6 +1099,7 @@ export function montarVeeduria(app, { auth, supabase }) {
           tipo,
           ciudad:        ciudad ? String(ciudad).slice(0, 100) : null,
           pipeline_tipo: pipeline_tipo || tipo,
+          plan_tipo:     planFinal,
         })
         .select('*')
         .single();
