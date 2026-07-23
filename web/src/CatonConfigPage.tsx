@@ -8,11 +8,12 @@
  *   Perfil        — nombre, ciudad (solo lectura para auditores)
  *   Membrete      — cabecera, pie de página, firmante para PDFs
  *   Notificaciones — email de alertas
+ *   Correo        — Resend API key o credenciales SMTP para envío de requerimientos
  *   IA (BYOK)    — solo si plan_tipo = 'byok'
  */
 import { useState, useEffect, useCallback, type FormEvent } from 'react'
 import {
-  Settings, Building2, FileText, Bell, Cpu,
+  Settings, Building2, FileText, Bell, Cpu, Mail,
   Loader2, CheckCircle2, RefreshCw, Eye, EyeOff, Lock,
 } from 'lucide-react'
 import type { CatonUser } from './useCatonAuth.js'
@@ -57,7 +58,25 @@ interface VeedorConfig {
   ai_api_key_enc?:  string   // solo escritura
 }
 
-type Tab = 'perfil' | 'membrete' | 'notificaciones' | 'ia'
+interface SmtpConfig {
+  id?:                bigint | number
+  org_id:             string
+  /** 'resend' | 'smtp' */
+  proveedor?:         string | null
+  resend_api_key?:    string | null
+  resend_from_email?: string | null
+  smtp_host?:         string | null
+  smtp_port?:         number | null
+  smtp_user?:         string | null
+  smtp_pass?:         string | null
+  from_email?:        string | null
+  from_nombre?:       string | null
+  imap_host?:         string | null
+  imap_port?:         number | null
+  activo?:            boolean
+}
+
+type Tab = 'perfil' | 'membrete' | 'notificaciones' | 'correo' | 'ia'
 
 const TIPO_ORG_LABEL: Record<string, string> = {
   veeduria:    'Veeduría',
@@ -72,10 +91,11 @@ interface Props { user: CatonUser }
 
 export function CatonConfigPage({ user }: Props) {
   const [tab, setTab]       = useState<Tab>('perfil')
-  const [org, setOrg]       = useState<OrgInfo | null>(null)
-  const [config, setConfig] = useState<VeedorConfig | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState('')
+  const [org, setOrg]             = useState<OrgInfo | null>(null)
+  const [config, setConfig]       = useState<VeedorConfig | null>(null)
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState('')
 
   const canEdit = user.rol === 'director' || user.rol === 'coordinador' || user.esAdmin
 
@@ -83,12 +103,14 @@ export function CatonConfigPage({ user }: Props) {
     if (!user.orgId) { setLoading(false); return }
     setLoading(true); setError('')
     try {
-      const [orgRows, cfgRows] = await Promise.all([
+      const [orgRows, cfgRows, smtpRows] = await Promise.all([
         catonGet(`veedor_orgs?id=eq.${user.orgId}&select=id,nombre,tipo,ciudad,plan_tipo,dominio_propio,email_from_address,dominio_verificado`) as Promise<OrgInfo[]>,
         catonGet(`veedor_config?org_id=eq.${user.orgId}&select=id,org_id,membrete_url,pie_pagina,firmante_nombre,firmante_cargo,email_alertas,ai_proveedor`) as Promise<VeedorConfig[]>,
+        catonGet(`veedor_config_smtp?org_id=eq.${user.orgId}&select=id,org_id,resend_api_key,resend_from_email,smtp_host,smtp_port,smtp_user,smtp_pass,from_email,from_nombre,imap_host,imap_port,activo`).catch(() => []) as Promise<SmtpConfig[]>,
       ])
       setOrg(orgRows?.[0] ?? null)
       setConfig(cfgRows?.[0] ?? { org_id: user.orgId, membrete_url: null, pie_pagina: null, firmante_nombre: null, firmante_cargo: null, email_alertas: null, ai_proveedor: null })
+      setSmtpConfig(smtpRows?.[0] ?? null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error cargando configuración')
     } finally { setLoading(false) }
@@ -113,6 +135,7 @@ export function CatonConfigPage({ user }: Props) {
     ['perfil',         <Building2 size={15} />, 'Perfil'],
     ['membrete',       <FileText size={15} />,  'Membrete'],
     ['notificaciones', <Bell size={15} />,      'Notificaciones'],
+    ['correo',         <Mail size={15} />,      'Correo saliente'],
     ...(org?.plan_tipo === 'byok' ? [['ia', <Cpu size={15} />, 'IA (llave propia)'] as [Tab, React.ReactNode, string]] : []),
   ]
 
@@ -191,6 +214,7 @@ export function CatonConfigPage({ user }: Props) {
       {tab === 'perfil'         && <TabPerfil org={org} canEdit={canEdit} onSaved={o => setOrg(o)} />}
       {tab === 'membrete'       && <TabMembrete config={config} canEdit={canEdit} onSaved={saveConfig} />}
       {tab === 'notificaciones' && <TabNotificaciones config={config} canEdit={canEdit} onSaved={saveConfig} />}
+      {tab === 'correo'         && <TabCorreo orgId={user.orgId ?? ''} smtp={smtpConfig} canEdit={canEdit} onSaved={setSmtpConfig} />}
       {tab === 'ia'             && <TabIA orgId={user.orgId ?? ''} config={config} canEdit={canEdit} onSaved={saveConfig} />}
     </div>
   )
@@ -542,6 +566,303 @@ function TabNotificaciones({ config, canEdit, onSaved }: {
               </span>
             )}
           </div>
+        )}
+      </form>
+    </Card>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Tab Correo saliente (Resend / SMTP)
+// ══════════════════════════════════════════════════════════════════════════════
+
+function TabCorreo({ orgId, smtp, canEdit, onSaved }: {
+  orgId:   string
+  smtp:    SmtpConfig | null
+  canEdit: boolean
+  onSaved: (s: SmtpConfig) => void
+}) {
+  const [proveedor,       setProveedor]       = useState<'resend' | 'smtp'>(smtp?.smtp_host ? 'smtp' : 'resend')
+  // Resend
+  const [resendKey,       setResendKey]       = useState(smtp?.resend_api_key ?? '')
+  const [resendFrom,      setResendFrom]      = useState(smtp?.resend_from_email ?? '')
+  // SMTP
+  const [smtpHost,        setSmtpHost]        = useState(smtp?.smtp_host ?? '')
+  const [smtpPort,        setSmtpPort]        = useState<number>(smtp?.smtp_port ?? 587)
+  const [smtpUser,        setSmtpUser]        = useState(smtp?.smtp_user ?? '')
+  const [smtpPass,        setSmtpPass]        = useState(smtp?.smtp_pass ?? '')
+  const [fromEmail,       setFromEmail]       = useState(smtp?.from_email ?? '')
+  const [fromNombre,      setFromNombre]      = useState(smtp?.from_nombre ?? '')
+  // IMAP (recepción)
+  const [imapHost,        setImapHost]        = useState(smtp?.imap_host ?? '')
+  const [imapPort,        setImapPort]        = useState<number>(smtp?.imap_port ?? 993)
+  // UI
+  const [showPass,        setShowPass]        = useState(false)
+  const [showKey,         setShowKey]         = useState(false)
+  const [saving,          setSaving]          = useState(false)
+  const [msg,             setMsg]             = useState('')
+
+  async function save(e: FormEvent) {
+    e.preventDefault()
+    setSaving(true); setMsg('')
+    try {
+      const body: Record<string, unknown> = {
+        org_id: orgId,
+        proveedor,
+        activo: true,
+        resend_api_key:    proveedor === 'resend' ? (resendKey.trim() || null)  : null,
+        resend_from_email: proveedor === 'resend' ? (resendFrom.trim() || null) : null,
+        smtp_host: proveedor === 'smtp' ? (smtpHost.trim() || null) : null,
+        smtp_port: proveedor === 'smtp' ? smtpPort : null,
+        smtp_user: proveedor === 'smtp' ? (smtpUser.trim() || null) : null,
+        smtp_pass: proveedor === 'smtp' ? (smtpPass.trim() || null) : null,
+        from_email:  fromEmail.trim()  || null,
+        from_nombre: fromNombre.trim() || null,
+        imap_host: imapHost.trim() || null,
+        imap_port: imapHost.trim() ? imapPort : null,
+      }
+
+      let rows: SmtpConfig[]
+      if (smtp?.id) {
+        rows = await catonPatch('veedor_config_smtp', `org_id=eq.${orgId}`, body) as SmtpConfig[]
+      } else {
+        rows = await catonPost('veedor_config_smtp', body) as SmtpConfig[]
+      }
+      if (rows?.[0]) { onSaved(rows[0]); setMsg('Guardado ✓') }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Error guardando')
+    } finally { setSaving(false) }
+  }
+
+  const hasConfig = !!smtp?.id
+
+  return (
+    <Card>
+      <SectionTitle icon={<Mail size={15} color={SELLO} />}>
+        Correo saliente para requerimientos
+      </SectionTitle>
+
+      <p style={{ fontSize: 13, color: INK55, margin: '0 0 20px', lineHeight: 1.6 }}>
+        CATÓN usa esta configuración para enviar los derechos de petición, tutelas y memoriales
+        directamente desde la plataforma, con trazabilidad de apertura.
+      </p>
+
+      {hasConfig && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 14px', background: `${OK}10`, border: `1px solid ${OK}30`,
+          borderRadius: 8, marginBottom: 20,
+        }}>
+          <CheckCircle2 size={16} color={OK} />
+          <span style={{ fontSize: 13, color: OK, fontWeight: 600 }}>
+            Correo configurado — proveedor actual: {smtp?.smtp_host ? 'SMTP' : 'Resend'}
+          </span>
+        </div>
+      )}
+
+      <form onSubmit={e => void save(e)} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+        {/* Selector de proveedor */}
+        <div style={{ display: 'flex', gap: 10 }}>
+          {(['resend', 'smtp'] as const).map(p => (
+            <button
+              key={p} type="button"
+              onClick={() => { if (canEdit) setProveedor(p) }}
+              style={{
+                flex: 1, padding: '12px 0', borderRadius: 8, cursor: canEdit ? 'pointer' : 'default',
+                border: `2px solid ${proveedor === p ? SELLO : INK12}`,
+                background: proveedor === p ? `${SELLO}12` : WHITE,
+                fontWeight: 700, fontSize: 14,
+                color: proveedor === p ? SELLO : INK55,
+              }}
+            >
+              {p === 'resend' ? '⚡ Resend (recomendado)' : '🔧 SMTP propio'}
+            </button>
+          ))}
+        </div>
+
+        {/* ── RESEND ─────────────────────────────────────── */}
+        {proveedor === 'resend' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{
+              padding: '12px 16px', background: INK06, borderRadius: 8, fontSize: 12.5, color: INK55, lineHeight: 1.6,
+            }}>
+              Crea una API key en <strong>resend.com</strong> → API Keys → Create API Key
+              (permiso: Sending access). Pega la key aquí.
+            </div>
+
+            <Field label="Resend API Key">
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showKey ? 'text' : 'password'}
+                  value={resendKey}
+                  onChange={e => setResendKey(e.target.value)}
+                  placeholder="re_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                  style={{ ...inputStyle, paddingRight: 44, fontFamily: '"IBM Plex Mono", monospace', fontSize: 12 }}
+                  disabled={!canEdit}
+                  autoComplete="off"
+                />
+                <button
+                  type="button" onClick={() => setShowKey(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: INK35, padding: 2 }}
+                >
+                  {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </Field>
+
+            <Field label="Dirección de envío (From)">
+              <input
+                type="email"
+                value={resendFrom}
+                onChange={e => setResendFrom(e.target.value)}
+                placeholder="veeduria@midominio.com"
+                style={inputStyle}
+                disabled={!canEdit}
+              />
+              <p style={{ fontSize: 11, color: INK35, margin: '4px 0 0' }}>
+                Debe ser un dominio verificado en Resend. El nombre del remitente se toma del campo "Nombre del firmante".
+              </p>
+            </Field>
+          </div>
+        )}
+
+        {/* ── SMTP ───────────────────────────────────────── */}
+        {proveedor === 'smtp' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 12 }}>
+              <Field label="Servidor SMTP (host)">
+                <input
+                  value={smtpHost}
+                  onChange={e => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com"
+                  style={inputStyle}
+                  disabled={!canEdit}
+                />
+              </Field>
+              <Field label="Puerto">
+                <input
+                  type="number"
+                  value={smtpPort}
+                  onChange={e => setSmtpPort(Number(e.target.value))}
+                  placeholder="587"
+                  style={inputStyle}
+                  disabled={!canEdit}
+                />
+              </Field>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="Usuario SMTP">
+                <input
+                  value={smtpUser}
+                  onChange={e => setSmtpUser(e.target.value)}
+                  placeholder="usuario@dominio.com"
+                  style={inputStyle}
+                  disabled={!canEdit}
+                />
+              </Field>
+              <Field label="Contraseña SMTP">
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    value={smtpPass}
+                    onChange={e => setSmtpPass(e.target.value)}
+                    placeholder="••••••••"
+                    style={{ ...inputStyle, paddingRight: 44 }}
+                    disabled={!canEdit}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button" onClick={() => setShowPass(v => !v)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: INK35, padding: 2 }}
+                  >
+                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </Field>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <Field label="Correo de envío (From)">
+                <input
+                  type="email"
+                  value={fromEmail}
+                  onChange={e => setFromEmail(e.target.value)}
+                  placeholder="veeduria@midominio.com"
+                  style={inputStyle}
+                  disabled={!canEdit}
+                />
+              </Field>
+              <Field label="Nombre del remitente">
+                <input
+                  value={fromNombre}
+                  onChange={e => setFromNombre(e.target.value)}
+                  placeholder="Veeduría Ciudadana de Córdoba"
+                  style={inputStyle}
+                  disabled={!canEdit}
+                />
+              </Field>
+            </div>
+
+            {/* IMAP — opcional para recepción */}
+            <div style={{
+              padding: '14px 16px', background: INK06, borderRadius: 10,
+              border: `1px solid ${INK12}`,
+            }}>
+              <p style={{ fontSize: 12, fontWeight: 700, color: INK55, margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                IMAP — recepción de respuestas (opcional)
+              </p>
+              <p style={{ fontSize: 12, color: INK55, margin: '0 0 12px' }}>
+                Si configuras IMAP, CATÓN detectará automáticamente las respuestas de las entidades
+                y las vinculará al expediente correspondiente.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '3fr 1fr', gap: 12 }}>
+                <Field label="Servidor IMAP (host)">
+                  <input
+                    value={imapHost}
+                    onChange={e => setImapHost(e.target.value)}
+                    placeholder="imap.gmail.com"
+                    style={inputStyle}
+                    disabled={!canEdit}
+                  />
+                </Field>
+                <Field label="Puerto">
+                  <input
+                    type="number"
+                    value={imapPort}
+                    onChange={e => setImapPort(Number(e.target.value))}
+                    placeholder="993"
+                    style={inputStyle}
+                    disabled={!canEdit}
+                  />
+                </Field>
+              </div>
+              <p style={{ fontSize: 11, color: INK35, margin: '8px 0 0' }}>
+                Usa las mismas credenciales de usuario/contraseña SMTP. Puerto 993 = SSL.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {canEdit && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button type="submit" disabled={saving} style={btnPrimaryStyle}>
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+              {saving ? 'Guardando…' : hasConfig ? 'Actualizar configuración' : 'Guardar configuración'}
+            </button>
+            {msg && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: msg.includes('✓') ? OK : HALLAZGO }}>
+                {msg}
+              </span>
+            )}
+          </div>
+        )}
+
+        {!canEdit && (
+          <p style={{ fontSize: 13, color: INK55, fontStyle: 'italic' }}>
+            Solo el Director o Coordinador puede modificar la configuración de correo.
+          </p>
         )}
       </form>
     </Card>
