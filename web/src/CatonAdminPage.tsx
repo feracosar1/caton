@@ -76,6 +76,7 @@ interface OrgRow {
   contratos_mes:       number | null
   nota_cuenta:         string | null
   ai_provider:         string | null
+  ai_api_key_enc:      string | null
 }
 
 interface EntidadRow {
