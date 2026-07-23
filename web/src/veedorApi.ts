@@ -54,8 +54,10 @@ export async function veedorFetch<T = unknown>(path: string, method = 'GET', bod
         throw new Error('Sesión expirada — recarga la página e inicia sesión de nuevo')
       }
     }
-    const data = await res.json()
-    if (!res.ok || data?.ok === false) throw new Error(data?.error ?? `HTTP ${res.status}`)
+    let data: unknown
+    try { data = await res.json() }
+    catch { throw new Error(`Error del servidor (${res.status}) — intenta de nuevo`) }
+    if (!res.ok || (data as { ok?: boolean })?.ok === false) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`)
     return data as T
   } finally {
     clearTimeout(timer)

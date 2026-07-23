@@ -2,8 +2,10 @@
  * CatonLandingPage.tsx — traducción 1:1 del mockup aprobado caton-landing-v7-ojo.html
  * Inline styles y CSS inyectado. Sin Tailwind.
  */
-import { useEffect } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+const VEEDOR_URL = import.meta.env.VITE_VEEDOR_URL ?? '/api/veedor'
 
 const CSS = `
 /* ---------- RESET + VARS ---------- */
@@ -452,7 +454,130 @@ const CSS = `
   #caton-landing .pipeline::before { display:none; }
   #caton-landing .metric + .metric { padding-left:0; border-left:none; }
 }
+/* ── CONTACTO ── */
+#caton-landing .contact-section { background:var(--pantalla); color:var(--pantalla-texto); }
+#caton-landing .contact-section .section-label { color:var(--oro-claro); }
+#caton-landing .contact-section .section-label::after { background:rgba(227,197,126,0.4); }
+#caton-landing .contact-section h2 { color:var(--pantalla-texto); }
+#caton-landing .contact-section .section-sub { color:var(--pantalla-texto-60); }
+#caton-landing .contact-grid { display:grid; grid-template-columns:1fr 1fr; gap:64px; margin-top:56px; align-items:start; }
+#caton-landing .contact-info-item { margin-bottom:28px; }
+#caton-landing .contact-info-label { font-size:10px; letter-spacing:0.24em; text-transform:uppercase; color:var(--oro-claro); margin-bottom:6px; }
+#caton-landing .contact-info-value { font-size:15px; color:var(--pantalla-texto); }
+#caton-landing .contact-form { display:flex; flex-direction:column; gap:16px; }
+#caton-landing .cf-row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+#caton-landing .cf-field { display:flex; flex-direction:column; gap:6px; }
+#caton-landing .cf-label { font-size:11px; letter-spacing:0.18em; text-transform:uppercase; color:var(--pantalla-texto-60); }
+#caton-landing .cf-input { background:rgba(237,232,220,0.06); border:1px solid rgba(237,232,220,0.12); border-radius:6px; padding:11px 14px; font-size:14px; color:var(--pantalla-texto); outline:none; transition:border .18s; font-family:'Inter',sans-serif; }
+#caton-landing .cf-input:focus { border-color:rgba(227,197,126,0.45); }
+#caton-landing .cf-input::placeholder { color:var(--pantalla-texto-40); }
+#caton-landing .cf-select { appearance:none; background:rgba(237,232,220,0.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='rgba(237,232,220,0.45)' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") right 14px center no-repeat; }
+#caton-landing .cf-textarea { resize:vertical; min-height:100px; }
+#caton-landing .cf-btn { background:var(--sello); color:var(--papel); border:none; border-radius:6px; padding:13px 28px; font-size:14px; font-weight:700; letter-spacing:0.06em; cursor:pointer; transition:background .18s,transform .18s; font-family:'Marcellus',serif; margin-top:4px; }
+#caton-landing .cf-btn:hover:not(:disabled) { background:var(--sello-fuerte); transform:translateY(-1px); }
+#caton-landing .cf-btn:disabled { opacity:0.55; cursor:not-allowed; }
+#caton-landing .cf-ok { background:rgba(31,127,78,0.15); border:1px solid rgba(95,191,140,0.3); border-radius:8px; padding:18px 20px; color:var(--ok-claro); font-size:14px; line-height:1.5; }
+#caton-landing .cf-err { background:rgba(176,57,44,0.12); border:1px solid rgba(228,117,106,0.3); border-radius:8px; padding:14px 16px; color:var(--rojo-claro); font-size:13px; margin-top:-4px; }
+@media (max-width:1000px) {
+  #caton-landing .contact-grid { grid-template-columns:1fr; gap:40px; }
+}
+@media (max-width:640px) {
+  #caton-landing .cf-row { grid-template-columns:1fr; }
+}
 `
+
+// ── Formulario de contacto ─────────────────────────────────────────────────────
+function FormContacto() {
+  const [form, setForm] = useState({
+    nombre: '', email: '', cargo: '', organizacion: '',
+    tipo_org: '', telefono: '', mensaje: '',
+  })
+  const [enviando, setEnviando] = useState(false)
+  const [ok, setOk] = useState(false)
+  const [error, setError] = useState('')
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setEnviando(true)
+    try {
+      const res = await fetch(`${VEEDOR_URL}/veeduria/contacto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...form, fuente: 'landing' }),
+      })
+      const data = await res.json()
+      if (!res.ok || data?.ok === false) throw new Error(data?.error ?? 'Error al enviar')
+      setOk(true)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Error al enviar. Intenta de nuevo.')
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  if (ok) {
+    return (
+      <div className="cf-ok">
+        ✓ Mensaje recibido — te contactaremos en menos de 24 horas.
+      </div>
+    )
+  }
+
+  return (
+    <form className="contact-form" onSubmit={submit}>
+      <div className="cf-row">
+        <div className="cf-field">
+          <label className="cf-label">Nombre *</label>
+          <input className="cf-input" placeholder="Tu nombre completo" value={form.nombre} onChange={set('nombre')} required />
+        </div>
+        <div className="cf-field">
+          <label className="cf-label">Correo *</label>
+          <input className="cf-input" type="email" placeholder="tu@organizacion.gov.co" value={form.email} onChange={set('email')} required />
+        </div>
+      </div>
+      <div className="cf-row">
+        <div className="cf-field">
+          <label className="cf-label">Cargo</label>
+          <input className="cf-input" placeholder="Director, Auditor…" value={form.cargo} onChange={set('cargo')} />
+        </div>
+        <div className="cf-field">
+          <label className="cf-label">Organización</label>
+          <input className="cf-input" placeholder="Nombre de tu entidad" value={form.organizacion} onChange={set('organizacion')} />
+        </div>
+      </div>
+      <div className="cf-row">
+        <div className="cf-field">
+          <label className="cf-label">Tipo de organización</label>
+          <select className="cf-input cf-select" value={form.tipo_org} onChange={set('tipo_org')}>
+            <option value="">Selecciona…</option>
+            <option value="veeduria">Veeduría ciudadana</option>
+            <option value="contraloria">Contraloría</option>
+            <option value="auditoria">Auditoría General</option>
+            <option value="ong">ONG / Sociedad civil</option>
+            <option value="academia">Universidad / Academia</option>
+            <option value="otro">Otro</option>
+          </select>
+        </div>
+        <div className="cf-field">
+          <label className="cf-label">Teléfono</label>
+          <input className="cf-input" placeholder="+57 300 000 0000" value={form.telefono} onChange={set('telefono')} />
+        </div>
+      </div>
+      <div className="cf-field">
+        <label className="cf-label">Mensaje</label>
+        <textarea className="cf-input cf-textarea" placeholder="¿Qué quieres fiscalizar? ¿Qué necesita tu veeduría?" value={form.mensaje} onChange={set('mensaje')} />
+      </div>
+      {error && <div className="cf-err">{error}</div>}
+      <button className="cf-btn" type="submit" disabled={enviando}>
+        {enviando ? 'Enviando…' : 'Enviar mensaje →'}
+      </button>
+    </form>
+  )
+}
 
 export function CatonLandingPage() {
   const navigate = useNavigate()
@@ -727,6 +852,7 @@ export function CatonLandingPage() {
           <a className="nav-link" href="#para-quien">Para quién</a>
           <a className="nav-link" href="#pipeline">Cómo funciona</a>
           <a className="nav-link" href="#capacidades">Capacidades</a>
+          <a className="nav-link" href="#contacto">Contacto</a>
           <button className="btn-ingresar" onClick={() => navigate('/app')}>Ingresar</button>
         </div>
       </nav>
@@ -1024,6 +1150,30 @@ export function CatonLandingPage() {
           <div className="cap"><span className="marca">·</span><span><b>Seguimiento procesal automático</b> en Rama Judicial, 24/7</span></div>
           <div className="cap"><span className="marca">·</span><span><b>Múltiples auditores y coordinadores</b> por organización</span></div>
           <div className="cap"><span className="marca">·</span><span><b>Panel de control</b> para directores de veeduría</span></div>
+        </div>
+      </section>
+
+      {/* ── CONTACTO ── */}
+      <section id="contacto" className="contact-section">
+        <div className="section-label reveal">Contacto</div>
+        <h2 className="roman reveal">¿Tu veeduría quiere<br/><span style={{ color:'var(--oro-claro)' }}>actuar con evidencia?</span></h2>
+        <p className="section-sub reveal">Escríbenos. Respondemos en menos de 24 horas y coordinamos una demostración con tu equipo.</p>
+        <div className="contact-grid reveal">
+          <div>
+            <div className="contact-info-item">
+              <div className="contact-info-label">Correo directo</div>
+              <div className="contact-info-value">argos@caton.la</div>
+            </div>
+            <div className="contact-info-item">
+              <div className="contact-info-label">Cobertura</div>
+              <div className="contact-info-value">Colombia — 65M+ contratos SECOP II</div>
+            </div>
+            <div className="contact-info-item">
+              <div className="contact-info-label">Ideal para</div>
+              <div className="contact-info-value">Veedurías ciudadanas · Contralorías · ONGs de transparencia · Periodismo de datos</div>
+            </div>
+          </div>
+          <FormContacto />
         </div>
       </section>
 

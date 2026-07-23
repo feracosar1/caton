@@ -31,11 +31,11 @@ const EP_CONTRATOS = 'jbjy-vk9h';
 // sí mismos y ensucian la señal de red. No son carteles, son volumen legítimo.
 const RUIDO_REP = /seguros|fiduci|aseguradora|positiva|previsora|banco|s\.?a\.?s?$|sin descripcion|no aplica/i;
 
-function socrata(dataset, params) {
+function socrata(dataset, params, timeoutMs = 12_000) {
   const q = new URLSearchParams(params);
   if (process.env.SOCRATA_APP_TOKEN) q.set('$$app_token', process.env.SOCRATA_APP_TOKEN);
   return new Promise((resolve, reject) => {
-    https.get({ hostname: SOCRATA, path: `/resource/${dataset}.json?${q}`, headers: { Accept: 'application/json' } }, (res) => {
+    const req = https.get({ hostname: SOCRATA, path: `/resource/${dataset}.json?${q}`, headers: { Accept: 'application/json' } }, (res) => {
       const c = [];
       res.on('data', d => c.push(d));
       res.on('end', () => {
@@ -46,6 +46,7 @@ function socrata(dataset, params) {
         } catch (e) { reject(e); }
       });
     }).on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`Socrata timeout ${timeoutMs}ms`)));
   });
 }
 
@@ -375,11 +376,16 @@ export async function detectarCarruseles({ topN = 12, dias = 730, minEmpresas = 
     .sort((a, b) => b.empresas_distintas - a.empresas_distintas)
     .slice(0, topN);
 
+  // Paralelo: todos los barridoRed al mismo tiempo (cada uno = 1 call Socrata con saltos:1)
+  const redResults = await Promise.allSettled(
+    semillas.map(s => barridoRed({ repId: s.rep_id }, { saltos: 1, dias, ambito, desde: d, hasta: h }))
+  );
+
   const carruseles = [];
-  for (const s of semillas) {
-    let red;
-    try { red = await barridoRed({ repId: s.rep_id }, { saltos: 1, dias, ambito, desde: d, hasta: h }); }
-    catch { continue; }
+  for (let i = 0; i < semillas.length; i++) {
+    if (redResults[i].status !== 'fulfilled') continue;
+    const s = semillas[i];
+    const red = redResults[i].value;
 
     const ents = red.nodos.entidades;
     const valorTotal = red.resumen.valor_total || 0;

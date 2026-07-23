@@ -44,6 +44,60 @@ const DORADO = '#C6A15B'
 
 const fmtCOP = (n: number | null | undefined) =>
   n == null ? '—' : new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n)
+
+// ── Loader animado CATÓN ───────────────────────────────────────────────────────
+const MSGS_BUSQUEDA = [
+  'Consultando SECOP I y SECOP II…',
+  'Filtrando contratos por parámetros…',
+  'Calculando scores de riesgo…',
+  'Cruzando bases de datos de contratistas…',
+  'Identificando señales de alerta…',
+]
+const MSGS_RADAR = [
+  'Detectando patrones de carrusel…',
+  'Calculando índice HHI de concentración…',
+  'Mapeando red de contratistas…',
+  'Identificando fraccionamiento de contratos…',
+  'Analizando rep. legal múltiple…',
+  'Cruzando supervisores de contratos…',
+  'Comparando objetos contractuales…',
+  'Construyendo grafo de vínculos…',
+]
+function CatonLoader({ modo = 'busqueda' }: { modo?: 'busqueda' | 'radar' }) {
+  const msgs = modo === 'radar' ? MSGS_RADAR : MSGS_BUSQUEDA
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setIdx(i => (i + 1) % msgs.length), 2800)
+    return () => clearInterval(t)
+  }, [msgs.length])
+  return (
+    <div style={{ padding: '32px 0 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+      {/* Sello animado */}
+      <div style={{ position: 'relative', width: 64, height: 64 }}>
+        <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: `3px solid ${INK}`, opacity: 0.08 }} />
+        <div className="spin" style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: `3px solid transparent`, borderTopColor: SELLO, borderRightColor: SELLO }} />
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Radar size={22} color={INK} style={{ opacity: 0.7 }} />
+        </div>
+      </div>
+      {/* Mensaje rotativo */}
+      <div style={{ height: 20, overflow: 'hidden', textAlign: 'center' }}>
+        <div key={idx} className="caton-msg" style={{ fontSize: 13, fontWeight: 600, color: INK, opacity: 0 }}>
+          {msgs[idx]}
+        </div>
+      </div>
+      {/* Skeleton rows */}
+      <div style={{ width: '100%', maxWidth: 640, display: 'flex', flexDirection: 'column', gap: 10, marginTop: 4 }}>
+        {[100, 85, 92, 70, 78].map((w, i) => (
+          <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div className="caton-shimmer" style={{ width: `${w}%`, height: 14 }} />
+            <div className="caton-shimmer" style={{ width: 48, height: 14, flexShrink: 0 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 const fmtFecha = (s: string | null | undefined) => (s ? String(s).slice(0, 10) : '—')
 
 // Fallback client-side cuando el servidor no incluye score (versión desactualizada).
@@ -186,7 +240,9 @@ export function VeeduriaExpedientes({
   /** Anon key del Supabase a usar (default: VITE_SUPABASE_ANON_KEY de NUMA) */
   sbAnon?: string
 }) {
-  useEffect(() => { api.setAuthToken(token) }, [token])
+  // Sincrónicamente: los efectos de hijos corren ANTES que los del padre en React,
+  // así que si usáramos useEffect el child llamaría listarJobsAsync sin token aún.
+  api.setAuthToken(token)
   const orgId = veedor_org_id ?? ''  // scope de la veeduría — vacío = super-admin ve todo
   const [pantalla, setPantalla] = useState<'buscar' | 'expedientes' | 'detalle' | 'red' | 'radar' | 'bandeja'>('buscar')
   const [error, setError] = useState('')
@@ -458,6 +514,10 @@ export function VeeduriaExpedientes({
         .spin { animation: spin 1s linear infinite }
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
         .pulse-dot { animation: pulse 2s ease-in-out infinite }
+        @keyframes shimmer { 0% { background-position: -400px 0 } 100% { background-position: 400px 0 } }
+        .caton-shimmer { background: linear-gradient(90deg, rgba(10,46,34,0.04) 25%, rgba(10,46,34,0.10) 50%, rgba(10,46,34,0.04) 75%); background-size: 800px 100%; animation: shimmer 1.6s infinite linear; border-radius: 4px; }
+        @keyframes caton-fade { 0%,100% { opacity:0; transform:translateY(4px) } 10%,88% { opacity:1; transform:translateY(0) } }
+        .caton-msg { animation: caton-fade 3s ease-in-out infinite }
         input[style*="border-bottom"]:focus { border-bottom-color: #96712A !important; }
         select.inp-select { padding:7px 0; font-size:13px; border:none; border-bottom:1px solid rgba(10,46,34,0.10); border-radius:0; background:transparent; color:#0A2E22; width:100%; outline:none; cursor:pointer; }
         tr.row-hallazgo { box-shadow: inset 2px 0 0 #B0392C; }
@@ -834,10 +894,11 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
   const [asyncOk, setAsyncOk]         = useState('')
   const [jobs, setJobs]               = useState<api.JobAsync[]>([])
 
-  // Carga escaneos recientes al montar
+  // Carga escaneos recientes cuando el token esté listo
   useEffect(() => {
+    if (!token) return
     api.listarJobsAsync().then(r => setJobs(r.jobs ?? [])).catch(() => {})
-  }, [])
+  }, [token])
 
   const lanzarAsync = async () => {
     if (!emailAsync.trim()) return
@@ -1016,8 +1077,11 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
         )}
       </div>
 
+      {/* Loader animado mientras busca */}
+      {buscando && <CatonLoader modo="busqueda" />}
+
       {/* Barra de resultados */}
-      {resumen && (
+      {!buscando && resumen && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 16,
           padding: '8px 12px',
@@ -1040,7 +1104,7 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
         </div>
       )}
 
-      {resultados.length > 0 && (
+      {!buscando && resultados.length > 0 && (
         <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
@@ -2413,11 +2477,13 @@ function PantallaRadar({ resultado, cargando, filtros, setFiltros, onActivar, on
             <Radar size={14} /> Radar global SECOP
           </Btn>
         </div>
-        {cargando && <span style={{ fontSize: 12, color: INK55, marginTop: 6, display: 'block' }}>Puede tardar hasta 3 min (descarga ~2.000 contratos de SECOP)</span>}
       </div>
 
+      {/* Loader animado mientras corre el radar */}
+      {cargando && <CatonLoader modo="radar" />}
+
       {/* Resultados */}
-      {resultado && (
+      {!cargando && resultado && (
         <>
           {/* Resumen de conteo */}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

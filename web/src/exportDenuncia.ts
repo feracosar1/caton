@@ -156,6 +156,5 @@ export async function exportarDenunciaDocx(opts: ExportDenunciaOpts): Promise<Bl
     ],
   })
 
-  const buffer = await Packer.toBuffer(doc)
-  return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+  return await Packer.toBlob(doc)
 }

@@ -155,8 +155,21 @@ export function montarVeeduria(app, { auth, supabase }) {
 
   // ── GRAFO Y AMAÑO (paso 2) ──
   app.get('/veeduria/grafo/rep-multiple', auth, async (req, res) => {
-    try { ok(res, { senales: await repLegalMultiple(req.query) }); }
-    catch (e) { err(res, e); }
+    try {
+      const timeoutMs = 22_000;
+      const result = await Promise.race([
+        repLegalMultiple(req.query),
+        new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${timeoutMs}ms`)), timeoutMs)),
+      ]);
+      ok(res, { senales: result });
+    } catch (e) {
+      const msg = e?.message ?? String(e);
+      if (msg.includes('timeout') || msg.includes('Socrata timeout')) {
+        ok(res, { senales: [], timeout: true, mensaje: 'Socrata tardó demasiado — intenta de nuevo en unos minutos' });
+      } else {
+        err(res, e);
+      }
+    }
   });
   app.get('/veeduria/grafo/recurrente', auth, async (req, res) => {
     try { ok(res, { senales: await contratistaRecurrente(req.query) }); }
@@ -210,10 +223,11 @@ export function montarVeeduria(app, { auth, supabase }) {
       if (req.query.nitEntidad)  opts.nitEntidad = req.query.nitEntidad;
       if (req.query.tipo)        opts.tipoContrato = req.query.tipo;
       if (req.query.entidad)     opts.entidad = req.query.entidad;
-      // Timeout de 22s — da resultado parcial en vez de 504 del proxy Netlify.
+      // Timeout de 22s + catch de errores Socrata → resultado parcial en vez de 500/504.
       const TIMEOUT_MS = 22000;
+      const safeDetect = detectarCarruseles(opts).catch(() => []);
       const timeout = new Promise(resolve => setTimeout(() => resolve([]), TIMEOUT_MS));
-      const carruseles = await Promise.race([detectarCarruseles(opts), timeout]);
+      const carruseles = await Promise.race([safeDetect, timeout]);
       ok(res, { carruseles });
     } catch (e) { err(res, e); }
   });
@@ -306,31 +320,35 @@ export function montarVeeduria(app, { auth, supabase }) {
 
       let resSuper, resCruz, resClones, resActas, resCarruseles, resRepMultiple, resFrac, resConc;
 
+      // Cada motor tiene 18s de timeout — el endpoint responde en < 22s (dentro del proxy Netlify)
+      const withTimeout = (p, ms = 18_000) =>
+        Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${ms}ms`)), ms))]);
+
       if (modoGlobal) {
         // Modo global: 3 motores que no necesitan filtro de entidad
         //   · carruselPorConcentracion — detecta entidades que rotan contratos entre favoritos (HHI)
         //   · detectarCarruseles       — rep legal detrás de múltiples cáscaras (top 30)
         //   · repLegalMultiple         — señal individual por (rep, entidad)
         [resConc, resCarruseles, resRepMultiple] = await Promise.allSettled([
-          carruselPorConcentracion({ ambito: opts.ambito, dias: opts.dias || 730, topN: 60 }),
-          detectarCarruseles({ ambito: opts.ambito, dias: opts.dias, topN: 30 }),
-          repLegalMultiple({ dias: opts.dias }),
+          withTimeout(carruselPorConcentracion({ ambito: opts.ambito, dias: opts.dias || 730, topN: 20 })),
+          withTimeout(detectarCarruseles({ ambito: opts.ambito, dias: opts.dias, topN: 10 })),
+          withTimeout(repLegalMultiple({ dias: opts.dias })),
         ]);
         resSuper = resCruz = resClones = resActas = resFrac = { status: 'fulfilled', value: [] };
       } else {
         // Modo entidad: 8 motores en paralelo. Si alguno falla, el radar sigue.
         [resSuper, resCruz, resClones, resActas, resCarruseles, resRepMultiple, resFrac, resConc] =
           await Promise.allSettled([
-            concentracionSupervisores(opts),
-            cruzamientoSupervisores(opts),
-            objetosDuplicados(opts),
-            actasAntesDeRegistro(opts),
-            detectarCarruseles({ nitEntidad: opts.nitEntidad, entidad: opts.entidad, ambito: opts.ambito, dias: opts.dias }),
-            repLegalMultiple({ nitEntidad: opts.nitEntidad, dias: opts.dias }),
-            opts.nitEntidad
+            withTimeout(concentracionSupervisores(opts)),
+            withTimeout(cruzamientoSupervisores(opts)),
+            withTimeout(objetosDuplicados(opts)),
+            withTimeout(actasAntesDeRegistro(opts)),
+            withTimeout(detectarCarruseles({ nitEntidad: opts.nitEntidad, entidad: opts.entidad, ambito: opts.ambito, dias: opts.dias })),
+            withTimeout(repLegalMultiple({ nitEntidad: opts.nitEntidad, dias: opts.dias })),
+            withTimeout(opts.nitEntidad
               ? fraccionamiento({ nitEntidad: opts.nitEntidad, dias: opts.dias })
-              : Promise.resolve([]),
-            carruselPorConcentracion({ nitEntidad: opts.nitEntidad, entidad: opts.entidad, ambito: opts.ambito, dias: opts.dias }),
+              : Promise.resolve([])),
+            withTimeout(carruselPorConcentracion({ nitEntidad: opts.nitEntidad, entidad: opts.entidad, ambito: opts.ambito, dias: opts.dias })),
           ]);
       }
 
