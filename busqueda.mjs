@@ -119,7 +119,7 @@ export async function buscarContratos(filtros = {}) {
       departamento: r.departamento, ciudad: r.ciudad, orden: r.orden, sector: r.sector,
       tipo_doc: r.tipodocproveedor,
       _auditar: r.id_contrato,          // → motor: descarga informes de este contrato
-      _grafo: r.documento_proveedor,    // → grafo: perfil y red de este contratista
+      _grafo: /^\d{4,}$/.test(String(r.documento_proveedor || '')) ? r.documento_proveedor : null,  // → grafo: perfil y red de este contratista
     };
     return { ...c, ...scorearContrato(c) };   // score + nivel + razones
   });

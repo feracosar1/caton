@@ -1129,7 +1129,7 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <Btn small onClick={() => auditar(c._auditar)} disabled={!!auditando}><Gavel size={12} /> Auditar</Btn>
-                        {c._grafo && <Btn small tone="ghost" onClick={() => verContratista(c._grafo!)}><GitBranch size={12} /></Btn>}
+                        {c._grafo && c.tipo_doc === 'NIT' && <Btn small tone="ghost" onClick={() => verContratista(c._grafo!)}><GitBranch size={12} /></Btn>}
                         {c.nit_contratista && c.tipo_doc === 'NIT' && (
                           <Btn small tone="ghost" onClick={() => lanzarRadarEntidad(c.nit_contratista!)} title="Lanzar radar sobre este contratista"><Radar size={12} /></Btn>
                         )}

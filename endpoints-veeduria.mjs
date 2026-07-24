@@ -104,7 +104,7 @@ async function buscarLocal(supabase, filtros = {}) {
       sector:               r.sector,
       tipo_doc:             r.tipodocproveedor,
       _auditar:             c.id,
-      _grafo:               c.nit_contratista,
+      _grafo:               /^\d{4,}$/.test(String(c.nit_contratista || '')) ? c.nit_contratista : null,
     };
     return { ...obj, ...scorearContrato(obj) };
   });
