@@ -701,3 +701,19 @@ export const guardarSmtpConfig = (opts: {
 
 export const eliminarSmtpConfig = (org_id: string) =>
   veedorFetch<{ desactivado: boolean }>(`/veeduria/config/smtp?org_id=${encodeURIComponent(org_id)}`, 'DELETE' as 'POST')
+
+// ── Verificación de representante legal en SECOP ─────────────────────────────
+
+export interface VerificacionRepLegal {
+  cedula:          string
+  confirmado:      boolean
+  veredicto:       'confirmado' | 'posible_error_datos' | 'sin_datos'
+  empresas:        Array<{ nit: string; nombre: string; num_contratos: number; valor_total: number }>
+  total_contratos: number
+  valor_total:     number
+  fuente?:         string
+  nota:            string
+}
+
+export const verificarRepLegal = (cedula: string) =>
+  veedorFetch<VerificacionRepLegal>(`/veeduria/grafo/verificar-rep/${encodeURIComponent(cedula)}`, 'GET', undefined, 25_000)
