@@ -2044,5 +2044,59 @@ export function montarVeeduria(app, { auth, supabase }) {
     } catch (e) { err(res, e); }
   });
 
-  console.log('[VEEDOR] endpoints de veeduría montados: /veeduria/{buscar,buscar-async,grafo,auditar,expedientes,denuncia,enviar,requerimientos,notas,tutela,analizar-respuesta,fallo,cerrar,cronograma,expediente/:id/importar-secop,config/smtp,contacto,leads,admin/cronograma-org,admin/invitar}');
+  // ── API Keys externas ────────────────────────────────────────────────────────
+
+  // POST /veeduria/admin/api-keys  — crear nueva API key (solo admins)
+  app.post('/veeduria/admin/api-keys', auth, async (req, res) => {
+    if (req.isApiKey) return res.status(403).json({ error: 'Las API keys no pueden crear otras API keys' });
+    try {
+      const { nombre, email, plan = 'basico', limite_mes = 1000 } = req.body ?? {};
+      if (!nombre) return res.status(400).json({ error: 'nombre requerido' });
+
+      // Generar key: sk_veedor_ + 32 bytes base64url
+      const { randomBytes, createHash } = await import('node:crypto');
+      const rawKey = `sk_veedor_${randomBytes(24).toString('base64url')}`;
+      const keyHash = createHash('sha256').update(rawKey).digest('hex');
+      const keyPrefix = rawKey.slice(0, 20) + '...';
+
+      const { data, error } = await supabase
+        .from('veedor_api_keys')
+        .insert({ key_hash: keyHash, key_prefix: keyPrefix, nombre, email, plan, limite_mes })
+        .select('id, key_prefix, nombre, email, plan, limite_mes, created_at')
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      // rawKey se muestra UNA sola vez — el cliente debe guardarlo
+      ok(res, { ...data, key: rawKey, aviso: 'Guarda este key ahora — no se puede recuperar' });
+    } catch (e) { err(res, e); }
+  });
+
+  // GET /veeduria/admin/api-keys  — listar todas las keys (sin revelar el hash)
+  app.get('/veeduria/admin/api-keys', auth, async (req, res) => {
+    if (req.isApiKey) return res.status(403).json({ error: 'Forbidden' });
+    try {
+      const { data, error } = await supabase
+        .from('veedor_api_keys')
+        .select('id, key_prefix, nombre, email, plan, activo, limite_mes, peticiones_mes, peticiones_total, created_at, last_used_at')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      ok(res, { keys: data });
+    } catch (e) { err(res, e); }
+  });
+
+  // DELETE /veeduria/admin/api-keys/:id  — revocar key
+  app.delete('/veeduria/admin/api-keys/:id', auth, async (req, res) => {
+    if (req.isApiKey) return res.status(403).json({ error: 'Forbidden' });
+    try {
+      const { error } = await supabase
+        .from('veedor_api_keys')
+        .update({ activo: false })
+        .eq('id', req.params.id);
+      if (error) throw new Error(error.message);
+      ok(res, { ok: true });
+    } catch (e) { err(res, e); }
+  });
+
+  console.log('[VEEDOR] endpoints de veeduría montados: /veeduria/{buscar,buscar-async,grafo,auditar,expedientes,denuncia,enviar,requerimientos,notas,tutela,analizar-respuesta,fallo,cerrar,cronograma,expediente/:id/importar-secop,config/smtp,contacto,leads,admin/cronograma-org,admin/invitar,precontractual,admin/api-keys}');
 }

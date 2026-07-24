@@ -12,6 +12,7 @@
 
 import express from 'express';
 import https from 'https';
+import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import ws from 'ws';
 import { config } from 'dotenv';
@@ -563,7 +564,7 @@ app.use(express.json({ limit: '10mb' }));  // base64 images pueden ser grandes
 app.use(express.static(join(__dirname, 'public')));
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -576,6 +577,23 @@ async function auth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
   if (SECRET && token === SECRET) return next();               // dev local (túnel)
+
+  // Intento 0: API Key externa — formato sk_veedor_*
+  if (token.startsWith('sk_veedor_') && CATON_URL && CATON_ANON) {
+    try {
+      const keyHash = crypto.createHash('sha256').update(token).digest('hex');
+      const r = await fetch(`${CATON_URL}/rest/v1/rpc/verificar_api_key`, {
+        method: 'POST',
+        headers: { apikey: CATON_ANON, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_key_hash: keyHash }),
+      });
+      if (r.ok) {
+        const ok = await r.json();
+        if (ok === true) { req.isApiKey = true; return next(); }
+        if (ok === false) return res.status(429).json({ error: 'Límite mensual de peticiones alcanzado' });
+      }
+    } catch { /* sigue a JWT */ }
+  }
 
   // Intento 1: JWT de CATÓN — is_caton_admin (admin o coordinador de veeduría)
   if (CATON_URL && CATON_ANON) {
