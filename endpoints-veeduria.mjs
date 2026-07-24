@@ -288,6 +288,60 @@ export function montarVeeduria(app, { auth, supabase }) {
     try { ok(res, { expedientes: await repo.listarExpedientes(req.query) }); }
     catch (e) { err(res, e); }
   });
+  // ── CRONOGRAMA (antes del :id genérico para evitar shadowing) ─────────────────
+
+  // GET hitos del proceso (si ya fueron extraídos)
+  app.get('/veeduria/expediente/cronograma/:idProceso', auth, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('veedor_cronograma')
+        .select('*')
+        .eq('id_proceso', req.params.idProceso)
+        .order('fecha_inicio', { ascending: true, nullsLast: true });
+      if (error) throw new Error(error.message);
+      ok(res, { hitos: data ?? [] });
+    } catch (e) { err(res, e); }
+  });
+
+  // POST extraer cronograma desde texto de pliego (dispara edge function async)
+  // Body: { idProceso, textoPliegos, procesoDatos? }
+  app.post('/veeduria/expediente/cronograma/extraer', auth, async (req, res) => {
+    const { idProceso, textoPliegos, procesoDatos } = req.body;
+    if (!idProceso || !textoPliegos) {
+      return err(res, new Error('idProceso y textoPliegos requeridos'));
+    }
+    try {
+      const { data, error } = await supabase.functions.invoke('veedor-extraer-cronograma', {
+        body: { id_proceso: String(idProceso), texto_pliegos: textoPliegos, proceso_datos: procesoDatos ?? {} },
+      });
+      if (error) throw new Error(typeof error === 'object' ? (error.message ?? String(error)) : String(error));
+      ok(res, data ?? { procesando: true });
+    } catch (e) { err(res, e); }
+  });
+
+  // PATCH actualizar un hito (marcar como verificado, cambiar estado, agregar alerta)
+  // Body: { estado?, verificado?, alerta_activa?, notas? }
+  app.patch('/veeduria/expediente/cronograma/hito/:id', auth, async (req, res) => {
+    const allowed = ['estado', 'verificado', 'alerta_activa', 'notas'];
+    const updates = {};
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+    if (!Object.keys(updates).length) {
+      return err(res, new Error('Sin campos para actualizar'));
+    }
+    try {
+      const { data, error } = await supabase
+        .from('veedor_cronograma')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', req.params.id)
+        .select('*')
+        .single();
+      if (error) throw new Error(error.message);
+      ok(res, { hito: data });
+    } catch (e) { err(res, e); }
+  });
+
   app.get('/veeduria/expediente/:id', auth, async (req, res) => {
     try {
       const data = await repo.obtenerExpediente(req.params.id);
@@ -779,60 +833,6 @@ export function montarVeeduria(app, { auth, supabase }) {
         });
       }
       ok(res, { ok: true });
-    } catch (e) { err(res, e); }
-  });
-
-  // ── CRONOGRAMA ───────────────────────────────────────────────────────────────
-
-  // GET hitos del proceso (si ya fueron extraídos)
-  app.get('/veeduria/expediente/cronograma/:idProceso', auth, async (req, res) => {
-    try {
-      const { data, error } = await supabase
-        .from('veedor_cronograma')
-        .select('*')
-        .eq('id_proceso', req.params.idProceso)
-        .order('fecha_inicio', { ascending: true, nullsLast: true });
-      if (error) throw new Error(error.message);
-      ok(res, { hitos: data ?? [] });
-    } catch (e) { err(res, e); }
-  });
-
-  // POST extraer cronograma desde texto de pliego (dispara edge function async)
-  // Body: { idProceso, textoPliegos, procesoDatos? }
-  app.post('/veeduria/expediente/cronograma/extraer', auth, async (req, res) => {
-    const { idProceso, textoPliegos, procesoDatos } = req.body;
-    if (!idProceso || !textoPliegos) {
-      return err(res, new Error('idProceso y textoPliegos requeridos'));
-    }
-    try {
-      const { data, error } = await supabase.functions.invoke('veedor-extraer-cronograma', {
-        body: { id_proceso: String(idProceso), texto_pliegos: textoPliegos, proceso_datos: procesoDatos ?? {} },
-      });
-      if (error) throw new Error(typeof error === 'object' ? (error.message ?? String(error)) : String(error));
-      ok(res, data ?? { procesando: true });
-    } catch (e) { err(res, e); }
-  });
-
-  // PATCH actualizar un hito (marcar como verificado, cambiar estado, agregar alerta)
-  // Body: { estado?, verificado?, alerta_activa?, notas? }
-  app.patch('/veeduria/expediente/cronograma/hito/:id', auth, async (req, res) => {
-    const allowed = ['estado', 'verificado', 'alerta_activa', 'notas'];
-    const updates = {};
-    for (const k of allowed) {
-      if (req.body[k] !== undefined) updates[k] = req.body[k];
-    }
-    if (!Object.keys(updates).length) {
-      return err(res, new Error('Sin campos para actualizar'));
-    }
-    try {
-      const { data, error } = await supabase
-        .from('veedor_cronograma')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', req.params.id)
-        .select('*')
-        .single();
-      if (error) throw new Error(error.message);
-      ok(res, { hito: data });
     } catch (e) { err(res, e); }
   });
 
@@ -1761,7 +1761,74 @@ export function montarVeeduria(app, { auth, supabase }) {
         });
         if (!secopRes.ok) throw new Error(`SECOP API error ${secopRes.status}`);
         const rows = await secopRes.json();
-        if (!rows || rows.length === 0) throw new Error(`Proceso "${idProceso}" no encontrado en SECOP`);
+        if (!rows || rows.length === 0) {
+          // ── Fallback para Contratación Directa ────────────────────────────────
+          // La CD no tiene proceso precontractual en el dataset p6dx-8zbt.
+          // Buscamos el contrato directamente en jbjy-vk9h (SECOP contratos)
+          // para extraer las fechas del contrato mismo (firma, inicio, fin).
+          const idContrato = exp.id_contrato || idProceso;
+          const EP_CONTRATOS = 'https://www.datos.gov.co/resource/jbjy-vk9h.json';
+          const pcd = new URLSearchParams({
+            '$where': `id_contrato = '${idContrato}'`,
+            '$select': 'id_contrato,fecha_de_firma,fecha_de_inicio_del_contrato,fecha_de_fin_del_contrato,modalidad_de_contratacion,nombre_entidad,estado_contrato',
+            '$limit': '1',
+          });
+          let rawContrato = null;
+          try {
+            const cRes = await fetch(`${EP_CONTRATOS}?${pcd}`, {
+              headers: { 'Accept': 'application/json' },
+              signal: AbortSignal.timeout(12000),
+            });
+            if (cRes.ok) {
+              const cRows = await cRes.json();
+              if (cRows && cRows.length > 0) rawContrato = cRows[0];
+            }
+          } catch (_) { /* continua sin fechas del contrato */ }
+
+          if (!rawContrato) throw new Error(`Proceso "${idProceso}" no encontrado en SECOP. Para contratación directa, asegúrese de que el id_contrato esté disponible.`);
+
+          // Armar hitos solo con fechas del contrato (sin fase precontractual)
+          const ahora = new Date();
+          const hitosCD = [];
+          const fechasCD = [
+            { tipo: 'firma_contrato',   label: 'Firma del contrato',           fecha: rawContrato.fecha_de_firma },
+            { tipo: 'inicio_ejecucion', label: 'Inicio de ejecución',           fecha: rawContrato.fecha_de_inicio_del_contrato },
+            { tipo: 'fin_ejecucion',    label: 'Fin de ejecución (vencimiento)', fecha: rawContrato.fecha_de_fin_del_contrato },
+          ];
+          for (const h of fechasCD) {
+            if (!h.fecha) continue;
+            const pasado = new Date(h.fecha) < ahora;
+            hitosCD.push({
+              id_proceso: idProceso,
+              tipo: h.tipo, nombre: h.label, fecha_inicio: h.fecha, fecha_fin: null,
+              estado: pasado ? 'completado' : 'pendiente',
+              verificado: false, alerta_activa: false,
+              notas: 'Contratación directa — sin fase precontractual',
+              updated_at: new Date().toISOString(),
+            });
+          }
+
+          if (hitosCD.length === 0) {
+            return ok(res, { ok: true, hitos: [], mensaje: 'Contratación directa: no se encontraron fechas en SECOP para este contrato' });
+          }
+
+          await supabase.from('veedor_cronograma').delete().eq('id_proceso', idProceso);
+          const { data: hitosInsCD, error: insErrCD } = await supabase
+            .from('veedor_cronograma').insert(hitosCD).select('*');
+          if (insErrCD) throw new Error(insErrCD.message);
+
+          return ok(res, {
+            ok: true,
+            hitos: hitosInsCD ?? hitosCD,
+            proceso: {
+              id: idProceso,
+              entidad: rawContrato.nombre_entidad || exp.entidad,
+              modalidad: rawContrato.modalidad_de_contratacion || 'Contratación Directa',
+              estado: rawContrato.estado_contrato || null,
+            },
+            es_contratacion_directa: true,
+          });
+        }
         raw = rows[0];
       }
 

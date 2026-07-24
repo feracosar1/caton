@@ -220,6 +220,131 @@ Responde ÚNICAMENTE con JSON válido:
   }
 }
 
+// ── ANÁLISIS PRE-CONTRACTUAL ────────────────────────────────────────────────
+//
+// Analiza los documentos pre-contractuales (estudios previos, CDP, pliego,
+// análisis de sector) para detectar irregularidades ANTES de la ejecución.
+// Se usa principalmente en Contratación Directa, donde no hay informes de
+// supervisión que cruzar.
+//
+// Tipos de hallazgo:
+//   PRE-OBJETO-VAGO         Objeto vago o genérico sin especificaciones técnicas
+//   PRE-CAUSAL-CD           Contratación directa sin justificación de la causal legal
+//   PRE-VALOR-INJUSTIFICADO Valor no respaldado por el estudio de costos
+//   PRE-CDP-INCONSISTENTE   CDP con valor diferente al contrato o sin vigencia
+//   PRE-SECTOR-DEFICIENTE   Análisis de sector insuficiente para justificar CD
+//   PRE-FRACCIONAMIENTO     Valor sospechosamente cercano a tope de CD
+//
+async function analizarDocumentosPrecontractuales(documentos, contrato, { model } = {}) {
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+  if (!ANTHROPIC_KEY) return [];
+
+  const MIN_TEXTO = 500;
+  const CDP_RE = /\b(cdp|certificado\s+de\s+disponibilidad|disponibilidad\s+presupuestal)\b/i;
+  const TIPOS_VALIDOS = new Set([
+    'PRE-OBJETO-VAGO', 'PRE-CAUSAL-CD', 'PRE-VALOR-INJUSTIFICADO',
+    'PRE-CDP-INCONSISTENTE', 'PRE-SECTOR-DEFICIENTE', 'PRE-FRACCIONAMIENTO',
+  ]);
+
+  // Solo documentos pre-contractuales con texto legible
+  const docsPrec = documentos.filter(d =>
+    (d.tipo === 'estudios_previos' || d.tipo === 'pliego' ||
+     CDP_RE.test(d.nombre) || d.tipo === 'analisis_sector' || d.tipo === 'otro_ejecucion') &&
+    (d._texto?.length ?? 0) > MIN_TEXTO
+  );
+
+  if (!docsPrec.length) return [];
+
+  const fmtCOP = (n) => n ? '$' + Math.round(n).toLocaleString('es-CO') : 'N/D';
+
+  // Construir inventario y fragmentos (máx 8K chars total)
+  const fragmentos = docsPrec.slice(0, 4).map((d, i) => {
+    const tipo = CDP_RE.test(d.nombre) ? 'CDP' : (d.tipo ?? 'documento').toUpperCase();
+    return `=== DOCUMENTO ${i + 1}: [${tipo}] ${d.nombre} ===\n${d._texto.slice(0, 2000)}`;
+  }).join('\n\n');
+
+  const prompt = `Eres auditor experto en contratación pública colombiana (Ley 80/93, Ley 1150/07, Decreto 1082/15).
+Analiza los documentos pre-contractuales de una Contratación Directa y detecta irregularidades.
+
+CONTRATO: ${contrato.id_contrato}
+ENTIDAD: ${contrato.entidad}
+VALOR PACTADO: ${fmtCOP(contrato.valor)}
+OBJETO: ${contrato.objeto}
+MODALIDAD: Contratación Directa
+
+${fragmentos}
+
+Detecta ÚNICAMENTE hallazgos verificables en los documentos anteriores. Usa exactamente uno de estos tipos:
+- PRE-OBJETO-VAGO: El objeto del contrato es vago, genérico o sin especificaciones técnicas suficientes
+- PRE-CAUSAL-CD: No se justifica la causal legal para Contratación Directa (Ley 80 Art.2 §4, D.1082 Arts. 2.2.1.2.1.4 y ss.)
+- PRE-VALOR-INJUSTIFICADO: El valor no está respaldado por el estudio de costos o hay sobreprecios evidentes
+- PRE-CDP-INCONSISTENTE: El CDP tiene un valor diferente al del contrato, o no cubre el plazo de ejecución
+- PRE-SECTOR-DEFICIENTE: El análisis del sector no justifica por qué solo un proveedor puede ejecutar el objeto
+- PRE-FRACCIONAMIENTO: El valor es sospechosamente cercano al tope legal de Contratación Directa (SMMLV vigente)
+
+NO reportes: suposiciones, ausencias que no sean verificables en el texto, ni diferencias menores de redacción.
+Si los documentos son insuficientes para detectar un hallazgo, NO lo reportes.
+
+Responde ÚNICAMENTE con JSON válido:
+{
+  "hallazgos": [
+    {
+      "tipo": "PRE-OBJETO-VAGO",
+      "descripcion": "Qué dice el documento y por qué es irregular (máx 200 chars)",
+      "evidencia": "Fragmento exacto del documento que sustenta el hallazgo (máx 300 chars)",
+      "doc_nombre": "nombre del documento donde se encontró",
+      "severidad": "alta" | "media"
+    }
+  ]
+}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model ?? 'claude-haiku-4-5-20251001',
+        max_tokens: 1200,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    const txt = data.content?.[0]?.text ?? '{}';
+    const match = txt.match(/\{[\s\S]*\}/);
+    if (!match) return [];
+
+    const { hallazgos = [] } = JSON.parse(match[0]);
+    const validos = hallazgos.filter(h => TIPOS_VALIDOS.has(h.tipo));
+
+    // Convertir al formato estándar del motor
+    return validos.map(h => {
+      const doc = docsPrec.find(d => d.nombre === h.doc_nombre) ?? docsPrec[0];
+      return {
+        regla_id: h.tipo,
+        doc_id: doc.id,
+        doc_nombre: h.doc_nombre ?? doc.nombre,
+        folio: 'análisis pre-contractual',
+        evidencia_textual: h.descripcion,
+        detalle: {
+          evidencia_doc: h.evidencia,
+          severidad: h.severidad,
+          doc_tipo: doc.tipo,
+          fuente: 'analisis_precontractual',
+        },
+      };
+    });
+  } catch (e) {
+    console.warn('[VEEDOR] análisis pre-contractual falló silenciosamente:', e.message);
+    return [];
+  }
+}
+
 /**
  * Corre el pipeline completo sobre un contrato hasta 'auditado'.
  * @param idContrato  CO1.PCCNTR.*
@@ -322,6 +447,23 @@ export async function auditarContrato(idContrato, { repo = null, onEstado = () =
       if (hallazgosCruce.length) {
         hallazgos.push(...hallazgosCruce);
         console.log(`[VEEDOR] ${idContrato}: ${hallazgosCruce.length} hallazgos de cruce documental`);
+      }
+    }
+
+    // ── NIVEL 4 — análisis pre-contractual ──────────────────────────────────
+    // Corre SIEMPRE que haya documentos pre-contractuales (estudios previos,
+    // CDP, pliego). Especialmente útil para Contratación Directa donde no hay
+    // informes de supervisión que cruzar. Falla silenciosamente.
+    const docsPrec = documentos.filter(d =>
+      d.tipo === 'estudios_previos' || d.tipo === 'pliego' ||
+      /\b(cdp|certificado\s+de\s+disponibilidad)\b/i.test(d.nombre)
+    );
+    if (docsPrec.length) {
+      onEstado('analizando_precontractual', { docs: docsPrec.map(d => d.nombre) });
+      const hallazgosPrec = await analizarDocumentosPrecontractuales(documentos, contrato, { model });
+      if (hallazgosPrec.length) {
+        hallazgos.push(...hallazgosPrec);
+        console.log(`[VEEDOR] ${idContrato}: ${hallazgosPrec.length} hallazgos pre-contractuales`);
       }
     }
 
