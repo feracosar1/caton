@@ -635,6 +635,7 @@ export function VeeduriaExpedientes({
             onVolver={() => { setPantalla('expedientes'); cargarExpedientes() }}
             onGenerar={generarDenuncia} onRecargar={abrirExpediente}
             onVerContratista={verContratista}
+            onBarrer={(nit) => barrer({ nit })}
             onGuardarDenuncia={guardarDenunciaHandler}
             onEnviarDenuncia={enviarDenunciaHandler}
           />
@@ -1240,11 +1241,12 @@ function PanelAnalisis({ analisis }: { analisis?: api.AnalisisDeterminista | nul
 }
 
 // ── Pantalla: Detalle del expediente ─────────────────────────────────────────
-function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgId, onVolver, onGenerar, onRecargar, onVerContratista, onGuardarDenuncia, onEnviarDenuncia }: {
+function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgId, onVolver, onGenerar, onRecargar, onVerContratista, onBarrer, onGuardarDenuncia, onEnviarDenuncia }: {
   detalle: api.ExpedienteDetalle | null; cargando: boolean; generando: boolean
   enviando: boolean; envioOk: api.EnvioResult | null; orgId: string
   onVolver: () => void; onGenerar: (id: number) => void; onRecargar: (id: number) => void
   onVerContratista: (nit: string) => void
+  onBarrer: (nit: string) => void
   onGuardarDenuncia: (html: string) => Promise<void>
   onEnviarDenuncia: (opts: { destinatario_email: string; destinatario_nombre: string; contenido_html?: string }) => Promise<void>
 }) {
@@ -1322,7 +1324,10 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
           <div style={{ textAlign: 'right' }}>
             <Badge estado={String(exp.estado)} />
             <div style={{ fontSize: 18, fontWeight: 800, color: INK, marginTop: 6 }}>{fmtCOP(exp.valor_contrato as number)}</div>
-            {nit && <div style={{ marginTop: 6 }}><Btn small tone="ghost" onClick={() => onVerContratista(nit)}><GitBranch size={12} /> Ver contratista</Btn></div>}
+            {nit && <div style={{ marginTop: 6, display: 'flex', gap: 6 }}>
+              <Btn small tone="ghost" onClick={() => onVerContratista(nit)}><GitBranch size={12} /> Ver contratista</Btn>
+              <Btn small tone="ghost" onClick={() => onBarrer(nit)}><GitBranch size={12} /> Ver red</Btn>
+            </div>}
           </div>
         </div>
       </div>
