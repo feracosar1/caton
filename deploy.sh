@@ -13,10 +13,13 @@ scp -i "$KEY" -q \
   imap-poller.mjs \
   analizador-pliegos.mjs \
   motor-reglas.mjs \
+  motor-precontractual.mjs \
   motor-similitud.mjs \
   redactor.mjs \
   score-contrato.mjs \
   busqueda.mjs \
+  repo-veeduria.mjs \
+  pipeline.mjs \
   package.json \
   "$VM:$REMOTE/"
 
