@@ -717,3 +717,30 @@ export interface VerificacionRepLegal {
 
 export const verificarRepLegal = (cedula: string) =>
   veedorFetch<VerificacionRepLegal>(`/veeduria/grafo/verificar-rep/${encodeURIComponent(cedula)}`, 'GET', undefined, 25_000)
+
+// ── Motor precontractual ──────────────────────────────────────────────────────
+
+export interface HallazgoPrecontractual {
+  regla_id:    string
+  titulo:      string
+  descripcion: string
+  evidencia:   string
+  severidad:   'alta' | 'media' | 'baja'
+  fuente:      'datos_proceso' | 'pliego_pdf'
+  cifras:      Array<{ label: string; valor: string }>
+}
+
+export interface ResultadoPrecontractual {
+  hallazgos:       HallazgoPrecontractual[]
+  proceso:         Record<string, unknown> | null
+  fuentes:         string[]
+  total_hallazgos: number
+  por_severidad:   { alta: number; media: number; baja: number }
+  sin_datos:       boolean
+}
+
+export const obtenerPrecontractual = (idProceso: string, valorContrato?: number) =>
+  veedorFetch<ResultadoPrecontractual>(
+    `/veeduria/precontractual/${encodeURIComponent(idProceso)}${valorContrato ? `?valor=${valorContrato}` : ''}`,
+    'GET', undefined, 30_000
+  )

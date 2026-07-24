@@ -14,11 +14,12 @@ import {
   Search, Gavel, FileText, Loader, ChevronLeft, RefreshCw, ExternalLink,
   AlertTriangle, GitBranch, X, ShieldCheck, ScrollText, Clock, Radar,
   Send, Calendar, CheckCircle, MessageSquare, Inbox, FileCheck, ChevronDown, ChevronRight,
-  Mail, Settings,
+  Mail, Settings, FileSearch,
 } from 'lucide-react'
 import * as api from './veedorApi.js'
 import { GrafoRadial, GraficoEvolucion } from './GrafoRadial.js'
 import { VeedorCronograma } from './VeedorCronograma.js'
+import { MotorPrecontractual } from './MotorPrecontractual.js'
 import { EditorDenuncia } from './EditorDenuncia.js'
 
 // ── Paleta CATÓN (papel notarial / tinta / sello) ──────────────────────────────
@@ -1381,6 +1382,16 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
             idProceso={String(exp.id_portafolio)}
             procesoDatos={exp as Record<string, unknown>}
             orgId={orgId}
+          />
+        </Seccion>
+      )}
+
+      {/* Motor precontractual — $0 en tokens, todo determinista */}
+      {exp.id_portafolio && (
+        <Seccion titulo="Análisis precontractual" icono={<FileSearch size={15} />}>
+          <MotorPrecontractual
+            idProceso={String(exp.id_portafolio)}
+            valorContrato={exp.valor_contrato as number | undefined}
           />
         </Seccion>
       )}

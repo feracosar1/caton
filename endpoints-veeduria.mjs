@@ -11,8 +11,9 @@
  */
 
 import { buscarContratos, resumenBusqueda } from './busqueda.mjs';
+import { motorPrecontractual } from './motor-precontractual.mjs';
 import { scorearContrato } from './score-contrato.mjs';
-import { contratistaRecurrente, repLegalMultiple, fraccionamiento, perfilContratista, barridoRed, barridoRedMultiple, detectarCarruseles, evolucionRed, carruselPorConcentracion } from './grafo-contratistas.mjs';
+import { contratistaRecurrente, repLegalMultiple, fraccionamiento, perfilContratista, barridoRed, barridoRedMultiple, detectarCarruseles, evolucionRed, carruselPorConcentracion, verificarRepLegal } from './grafo-contratistas.mjs';
 import { auditarContrato } from './pipeline.mjs';
 import { analisisDeterminista } from './analisis-determinista.mjs';
 import { crearRepo } from './repo-veeduria.mjs';
@@ -182,6 +183,19 @@ export function montarVeeduria(app, { auth, supabase }) {
   app.get('/veeduria/grafo/perfil/:nit', auth, async (req, res) => {
     try { ok(res, { perfil: await perfilContratista(req.params.nit, req.query) }); }
     catch (e) { err(res, e); }
+  });
+
+  // Verificación cruzada de un representante legal en SECOP: dado un número de
+  // cédula, consulta Socrata directamente para confirmar cuántas empresas distintas
+  // tienen registrada esa cédula y cuántos contratos acumulan.
+  app.get('/veeduria/grafo/verificar-rep/:cedula', auth, async (req, res) => {
+    try {
+      const resultado = await Promise.race([
+        verificarRepLegal(req.params.cedula),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20_000)),
+      ]);
+      ok(res, resultado);
+    } catch (e) { err(res, e); }
   });
 
   // Barrido de red por sujeto vigilado: ?nit=<contratista> o ?repId=<cédula>.
@@ -2015,6 +2029,18 @@ export function montarVeeduria(app, { auth, supabase }) {
           proximos_30d: proximos30.length,
         },
       });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── GET /veeduria/precontractual/:idProceso — motor precontractual ───────────
+  // Reglas deterministas sobre datos del proceso (p6dx-8zbt) + alertas de pliego.
+  // Query param: ?valor=<numero> — valor del contrato para calibrar PC-05/PC-06.
+  app.get('/veeduria/precontractual/:idProceso', auth, async (req, res) => {
+    try {
+      const { idProceso } = req.params;
+      const valorContrato = Number(req.query.valor) || 0;
+      const resultado = await motorPrecontractual(idProceso, { supabase, valorContrato });
+      ok(res, resultado);
     } catch (e) { err(res, e); }
   });
 
