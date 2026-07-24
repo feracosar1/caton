@@ -1286,7 +1286,8 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
 
   if (cargando || !detalle) return <div style={{ ...card, textAlign: 'center', color: INK55 }}><Loader size={18} className="spin" /> Cargando expediente…</div>
   const exp = detalle.expediente as Record<string, unknown>
-  const nit = exp.nit_contratista as string | undefined
+  const nitRaw = exp.nit_contratista as string | undefined
+  const nit = /^\d{4,}$/.test(String(nitRaw || '')) ? nitRaw : undefined
   const denuncia = detalle.actuaciones?.find(a => a.tipo === 'denuncia')
   const citas = denuncia?.evaluacion?.citas
 
@@ -2326,7 +2327,7 @@ function HallazgoCard({ h, onAuditar, onVerContratista, onLanzarRadar }: {
                   <td style={{ padding: '4px 6px', fontWeight: 700, color: (p.pct ?? 0) >= 70 ? RED : INK }}>{p.pct ?? '?'}%</td>
                   <td style={{ padding: '4px 6px', color: INK55 }}>{fmtCOP(p.valor)}</td>
                   <td style={{ padding: '4px 6px' }}>
-                    {p.nit && (
+                    {p.nit && /^\d{4,}$/.test(String(p.nit)) && (
                       <div style={{ display: 'flex', gap: 4 }}>
                         <Btn small tone='ghost' onClick={() => onLanzarRadar(p.nit!)}>
                           <Radar size={10} /> Radar
@@ -2389,7 +2390,7 @@ function HallazgoCard({ h, onAuditar, onVerContratista, onLanzarRadar }: {
           {JSON.stringify(ev, null, 2)}
         </pre>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {nit && nit !== 'undefined' && <Btn small tone='ghost' onClick={() => onVerContratista(nit)}>Ver contratista {nit}</Btn>}
+          {nit && nit !== 'undefined' && /^\d{4,}$/.test(nit) && <Btn small tone='ghost' onClick={() => onVerContratista(nit)}>Ver contratista {nit}</Btn>}
           {idContrato && idContrato !== 'undefined' && <Btn small tone='green' onClick={() => onAuditar(idContrato)}>Auditar contrato</Btn>}
         </div>
       </div>
