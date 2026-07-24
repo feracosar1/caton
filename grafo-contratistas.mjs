@@ -624,3 +624,57 @@ export async function evolucionRed(semilla, { dias = 2200, ambito } = {}) {
     total_contratos: filas.length,
   };
 }
+
+/**
+ * verificarRepLegal — dado un número de cédula, consulta Socrata para confirmar
+ * cuántas empresas distintas tienen registrada esa cédula como representante legal
+ * y cuántos contratos acumulan. Útil para cruzar lo que dice el Cámara de Comercio
+ * con la realidad de SECOP.
+ */
+export async function verificarRepLegal(cedula) {
+  if (!cedula || !/^\d{4,12}$/.test(String(cedula).trim())) {
+    return { cedula, empresas: [], total_contratos: 0, total_valor: 0, sin_datos: true };
+  }
+  const c = String(cedula).trim();
+  const soql = `SELECT documento_proveedor,proveedor_adjudicado,nit_entidad,nombre_entidad,valor_del_contrato`
+    + ` WHERE cedula_representante_legal='${c}' AND documento_proveedor IS NOT NULL`
+    + ` LIMIT 1000`;
+  const url = `https://${SOCRATA}/resource/${EP_CONTRATOS}.json?$query=${encodeURIComponent(soql)}`;
+  const filas = await new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'Accept': 'application/json' } }, res => {
+      let body = '';
+      res.on('data', d => { body += d; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(body)); } catch { resolve([]); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(15_000, () => { req.destroy(); reject(new Error('timeout')); });
+  });
+  if (!Array.isArray(filas) || filas.length === 0) {
+    return { cedula: c, empresas: [], total_contratos: 0, total_valor: 0, sin_datos: true };
+  }
+  // Agrupa por empresa
+  const porEmpresa = new Map();
+  for (const f of filas) {
+    const nit = f.documento_proveedor ?? '';
+    if (!nit) continue;
+    if (!porEmpresa.has(nit)) {
+      porEmpresa.set(nit, { nit, nombre: f.proveedor_adjudicado ?? '', contratos: 0, valor: 0, entidades: new Set() });
+    }
+    const e = porEmpresa.get(nit);
+    e.contratos++;
+    e.valor += Number(f.valor_del_contrato) || 0;
+    if (f.nit_entidad) e.entidades.add(f.nit_entidad);
+  }
+  const empresas = [...porEmpresa.values()]
+    .map(e => ({ nit: e.nit, nombre: e.nombre, contratos: e.contratos, valor: e.valor, entidades: e.entidades.size }))
+    .sort((a, b) => b.valor - a.valor);
+  return {
+    cedula: c,
+    empresas,
+    total_contratos: filas.length,
+    total_valor: empresas.reduce((s, e) => s + e.valor, 0),
+    sin_datos: false,
+  };
+}

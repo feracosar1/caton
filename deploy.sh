@@ -15,6 +15,7 @@ scp -i "$KEY" -q \
   motor-reglas.mjs \
   motor-precontractual.mjs \
   motor-similitud.mjs \
+  grafo-contratistas.mjs \
   redactor.mjs \
   score-contrato.mjs \
   busqueda.mjs \
