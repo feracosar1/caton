@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import * as api from './veedorApi.js'
 import { GrafoRadial, GraficoEvolucion } from './GrafoRadial.js'
+import { VeedorCronograma } from './VeedorCronograma.js'
 import { EditorDenuncia } from './EditorDenuncia.js'
 
 // ── Paleta CATÓN (papel notarial / tinta / sello) ──────────────────────────────
@@ -1129,8 +1130,8 @@ function PantallaBuscar({ filtros, setF, buscar, buscando, resultados, resumen, 
                     <td style={{ ...td, whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
                         <Btn small onClick={() => auditar(c._auditar)} disabled={!!auditando}><Gavel size={12} /> Auditar</Btn>
-                        {c._grafo && c.tipo_doc === 'NIT' && <Btn small tone="ghost" onClick={() => verContratista(c._grafo!)}><GitBranch size={12} /></Btn>}
-                        {c.nit_contratista && c.tipo_doc === 'NIT' && (
+                        {c._grafo && <Btn small tone="ghost" onClick={() => verContratista(c._grafo!)}><GitBranch size={12} /></Btn>}
+                        {c.nit_contratista && (
                           <Btn small tone="ghost" onClick={() => lanzarRadarEntidad(c.nit_contratista!)} title="Lanzar radar sobre este contratista"><Radar size={12} /></Btn>
                         )}
                           </div>
@@ -1372,6 +1373,17 @@ function PantallaDetalle({ detalle, cargando, generando, enviando, envioOk, orgI
           </div>
         )}
       </Seccion>
+
+      {/* Cronograma precontractual */}
+      {exp.id_portafolio && (
+        <Seccion titulo="Cronograma del proceso" icono={<Calendar size={15} />}>
+          <VeedorCronograma
+            idProceso={String(exp.id_portafolio)}
+            procesoDatos={exp as Record<string, unknown>}
+            orgId={orgId}
+          />
+        </Seccion>
+      )}
 
       {/* Denuncia */}
       <Seccion titulo="Borrador de denuncia" icono={<Gavel size={15} />}>
