@@ -36,7 +36,7 @@ interface Requerimiento {
   entidad_nombre: string
   entidad_email: string | null
   fecha_envio: string | null
-  fecha_limite_respuesta: string | null
+  fecha_vencimiento: string | null
   fecha_respuesta: string | null
 }
 
@@ -59,7 +59,7 @@ function fmtFecha(s: string | null): string {
 
 function calcEstado(r: Requerimiento): 'respondido' | 'vencido' | 'enviado' {
   if (r.estado === 'respondido' || r.fecha_respuesta) return 'respondido'
-  const dias = diasRestantes(r.fecha_limite_respuesta)
+  const dias = diasRestantes(r.fecha_vencimiento)
   if (dias !== null && dias < 0) return 'vencido'
   return 'enviado'
 }
@@ -84,7 +84,7 @@ export function CatonRequerimientos({ user }: CatonRequerimientosProps) {
     setError('')
     try {
       const rows = await catonGet(
-        `veedor_requerimientos?select=id,tipo,estado,entidad_nombre,entidad_email,fecha_envio,fecha_limite_respuesta,fecha_respuesta&veedor_org_id=eq.${orgId}&order=created_at.desc&limit=50`
+        `veedor_requerimientos?select=id,tipo,estado,entidad_nombre,entidad_email,fecha_envio,fecha_vencimiento,fecha_respuesta&veedor_org_id=eq.${orgId}&order=created_at.desc&limit=50`
       ) as Requerimiento[]
       setRequerimientos(rows ?? [])
     } catch (err) {
@@ -235,7 +235,7 @@ export function CatonRequerimientos({ user }: CatonRequerimientosProps) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {requerimientosFiltrados.map(r => {
             const estado = calcEstado(r)
-            const dias = diasRestantes(r.fecha_limite_respuesta)
+            const dias = diasRestantes(r.fecha_vencimiento)
             const borderColor = estado === 'respondido' ? '#86EFAC' : estado === 'vencido' ? '#FCA5A5' : '#FDE68A'
 
             return (
@@ -272,7 +272,7 @@ export function CatonRequerimientos({ user }: CatonRequerimientosProps) {
                       <span style={{ fontSize: 12, color: INK55 }}>
                         <span style={{ fontWeight: 600 }}>Enviado:</span> {fmtFecha(r.fecha_envio)}
                       </span>
-                      {r.fecha_limite_respuesta && (
+                      {r.fecha_vencimiento && (
                         <span style={{
                           fontSize: 12,
                           color: estado === 'vencido' ? RED : estado === 'enviado' && dias !== null && dias <= 3 ? AMBER : INK55,
@@ -281,8 +281,8 @@ export function CatonRequerimientos({ user }: CatonRequerimientosProps) {
                           {estado === 'respondido'
                             ? `Respondido: ${fmtFecha(r.fecha_respuesta)}`
                             : estado === 'vencido'
-                            ? `Venció: ${fmtFecha(r.fecha_limite_respuesta)} (hace ${Math.abs(dias!)} días)`
-                            : `Límite: ${fmtFecha(r.fecha_limite_respuesta)} (${dias} días)`}
+                            ? `Venció: ${fmtFecha(r.fecha_vencimiento)} (hace ${Math.abs(dias!)} días)`
+                            : `Límite: ${fmtFecha(r.fecha_vencimiento)} (${dias} días)`}
                         </span>
                       )}
                       {r.entidad_email && (
